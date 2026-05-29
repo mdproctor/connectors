@@ -3,7 +3,7 @@
 **Issue:** casehubio/connectors#7  
 **Branch:** issue-7-email-inbound-v1-polish  
 **Date:** 2026-05-29  
-**Rev:** 3 (post-review-2)
+**Rev:** 4 (post-review-3)
 
 ---
 
@@ -79,15 +79,18 @@ source (database, multi-tenant config, etc.) without changing the connector.
 
 `@ApplicationScoped` CDI bean. `id()` returns `"email-inbound"`.
 
-- `start(sink)`: creates one `jakarta.mail.Session` (property holder, created
-  once, reused across polls). Iterates accounts from provider; launches one
-  single-threaded `ScheduledExecutorService` per account using
-  `scheduleWithFixedDelay` (next poll only starts after previous completes).
+- `start(sink)`: iterates accounts from provider; launches one single-threaded
+  `ScheduledExecutorService` per account using `scheduleWithFixedDelay` (next poll
+  only starts after previous completes). The executor list is initialised at
+  construction (not lazily), so `stop()` is always safe to call.
 - `stop()`: calls `shutdownNow()` on all executors.
 
-**Session vs. Store lifecycle:** `Session` is a lightweight property holder —
-created once at `start()` and shared. `Store` holds a live TCP connection —
-opened and closed per poll cycle. Do not conflate them.
+**Session vs. Store lifecycle:** one `jakarta.mail.Session` per account — created
+at the start of each poll cycle alongside the `Store`. Session is a lightweight
+properties holder (TLS settings, host, port baked in at construction), so a shared
+Session cannot accommodate accounts with differing `tls` values; per-account
+Sessions eliminate this. `Store` holds a live TCP connection — both Session and
+Store are opened and closed per poll cycle.
 
 ---
 
@@ -119,11 +122,11 @@ No `casehub-platform-api` dependency. Future multi-tenant providers implement
 | Field | Value |
 |---|---|
 | `connectorId` | `"email-inbound"` — always the connector type constant; never the account id |
-| `externalSenderId` | `From:` header — `InternetAddress.getAddress()` (address only, not display name) |
+| `externalSenderId` | `From:` first address via `InternetAddress.getAddress()`; `""` when `From:` is absent or unparseable |
 | `externalChannelRef` | First `To:` address via `InternetAddress.getAddress()`; falls back to `account.username()` when `To:` is absent or empty |
 | `content` | Plain text part if present; raw HTML if HTML-only; `""` if neither. Recursive extraction (see below). |
 | `receivedAt` | `Message.getReceivedDate()` → `Message.getSentDate()` → `Instant.now()` (fallback chain) |
-| `metadata` | `"message-id"` → RFC 2822 Message-ID; `"subject"` → email subject; `"account-id"` → `EmailInboundAccount.id()` |
+| `metadata` | Keys present only when header exists: `"message-id"` → RFC 2822 Message-ID; `"subject"` → email subject. Always present: `"account-id"` → `EmailInboundAccount.id()` |
 
 `"account-id"` lets observers distinguish accounts in multi-account deployments.
 `connectorId` is always `"email-inbound"` so type-based dispatch never needs prefix matching.
@@ -132,7 +135,7 @@ No `casehub-platform-api` dependency. Future multi-tenant providers implement
 
 ## Poll Cycle (Per Account)
 
-1. Open `Store` and `Folder` in READ_WRITE mode (using the shared `Session`; `Store` is opened fresh every poll cycle — no reconnect logic needed)
+1. Create `Session` with account-specific properties (host, port, TLS settings); open `Store` and `Folder` in READ_WRITE mode — all created fresh every poll cycle, no reconnect logic needed
 2. Search for UNSEEN messages: `folder.search(new FlagTerm(Flags.Flag.SEEN, false))`
 3. For each message:
    a. Parse `From:` → `InternetAddress.getAddress()` → `externalSenderId`
@@ -265,6 +268,7 @@ casehub.connectors.email-inbound.port=<greenmail-imap-port>
 casehub.connectors.email-inbound.tls=false
 casehub.connectors.email-inbound.username=test@example.com
 casehub.connectors.email-inbound.password=password
+casehub.connectors.email-inbound.poll-interval-seconds=1
 ```
 
 One happy-path test: send plain-text email to Greenmail → poll fires → CDI event

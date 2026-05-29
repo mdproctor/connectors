@@ -2,7 +2,8 @@
 
 **Issue:** casehubio/connectors#7  
 **Branch:** issue-7-email-inbound-v1-polish  
-**Date:** 2026-05-29
+**Date:** 2026-05-29  
+**Rev:** 2 (post-review)
 
 ---
 
@@ -13,9 +14,26 @@ received emails as `InboundMessage` CDI events via `InboundConnectorService`.
 
 ---
 
+## Module Structure
+
+A new `email-inbound` module, **separate from the existing `email` module**.
+
+`quarkus-mailer` (SMTP, outbound) and `angus-mail` (Jakarta Mail, IMAP) have no
+shared infrastructure. Putting them in the same module would force IMAP users to
+configure `quarkus-mailer` (which stalls at augmentation time when unconfigured)
+and force outbound-email users to carry an IMAP dependency. The separation mirrors
+`webhook` (inbound) vs. outbound connectors in `core`.
+
+| Module | Artifact | Contents |
+|---|---|---|
+| `email` | `casehub-connectors-email` | `EmailConnector` (outbound) + `quarkus-mailer` — unchanged |
+| `email-inbound` | `casehub-connectors-email-inbound` | `EmailInboundConnector`, `EmailInboundAccount`, `EmailInboundAccountProvider`, `angus-mail` |
+
+---
+
 ## Architecture
 
-Three new types, all in the `email` module:
+Three new types, all in the `email-inbound` module:
 
 ### `EmailInboundAccount` (record)
 
@@ -23,7 +41,7 @@ Value type carrying one IMAP account's connection details:
 
 ```java
 public record EmailInboundAccount(
-        String id,                // connector id suffix, e.g. "email-inbound"
+        String id,                // used as InboundMessage.connectorId
         String host,
         int port,                 // default 993
         boolean tls,              // default true (IMAPS)
@@ -34,9 +52,12 @@ public record EmailInboundAccount(
 ) {}
 ```
 
-`id` is used as `InboundMessage.connectorId`. Multi-account deployments use
-caller-chosen ids (e.g. `"email-inbound-support"`, `"email-inbound-billing"`)
-so observers can filter by account.
+`id` is placed in `InboundMessage.connectorId` (e.g. `"email-inbound"` for the
+default single-account case, `"email-inbound-support"` for a named account).
+`connectorId` is the connector-type discriminator; in the single-account case
+the account id and connector type id are identical. The per-account identity for
+multi-account deployments is also carried in `metadata["account-id"]` so observers
+can always filter by both dimensions independently.
 
 ### `EmailInboundAccountProvider` (SPI)
 
@@ -47,75 +68,118 @@ public interface EmailInboundAccountProvider {
 ```
 
 CDI interface returning all accounts to poll. The default `@DefaultBean`
-implementation (`DefaultEmailInboundAccountProvider`) resolves a single account
-from `Preferences` using typed `PreferenceKey` constants. If `HOST` resolves to
-blank, returns `List.of()` — connector is inactive, no threads started.
+implementation (`DefaultEmailInboundAccountProvider`) uses `@ConfigProperty` to
+read a single account from MicroProfile Config (same pattern as all other
+connectors). If `host` is blank, returns `List.of()` — connector is inactive,
+no threads started.
 
-Callers implement this bean to supply accounts from any source (database,
-multi-tenant preference store, etc.).
+Callers implement this bean with higher CDI priority to supply accounts from any
+source (database, multi-tenant config, etc.) without changing the connector.
 
 ### `EmailInboundConnector implements InboundConnector`
 
-`@ApplicationScoped` CDI bean. `id()` returns `"email-inbound"` (the connector
-registration id — distinct from the per-account `EmailInboundAccount.id()`).
+`@ApplicationScoped` CDI bean. `id()` returns `"email-inbound"`.
 
-- `start(sink)`: iterates accounts from `EmailInboundAccountProvider`, launches
-  one single-threaded `ScheduledExecutorService` per account using
-  `scheduleWithFixedDelay` (next poll starts only after previous completes).
+- `start(sink)`: creates one `jakarta.mail.Session` (property holder, created
+  once, reused across polls). Iterates accounts from provider; launches one
+  single-threaded `ScheduledExecutorService` per account using
+  `scheduleWithFixedDelay` (next poll only starts after previous completes).
 - `stop()`: calls `shutdownNow()` on all executors.
+
+**Session vs. Store lifecycle:** `Session` is a lightweight property holder —
+created once at `start()` and shared. `Store` holds a live TCP connection —
+opened and closed per poll cycle. Do not conflate them.
 
 ---
 
-## Configuration — Typed `PreferenceKey` Constants
+## Configuration
 
-Defined in `EmailInboundPreferences` (package-private utility class):
+`DefaultEmailInboundAccountProvider` reads via `@ConfigProperty`:
 
-| Key constant   | Config property                                        | Default  |
-|---------------|--------------------------------------------------------|----------|
-| `HOST`        | `casehub.connectors.email-inbound.host`               | `""`     |
-| `PORT`        | `casehub.connectors.email-inbound.port`               | `993`    |
-| `TLS`         | `casehub.connectors.email-inbound.tls`                | `true`   |
-| `USERNAME`    | `casehub.connectors.email-inbound.username`           | `""`     |
-| `PASSWORD`    | `casehub.connectors.email-inbound.password`           | `""`     |
-| `FOLDER`      | `casehub.connectors.email-inbound.folder`             | `"INBOX"`|
-| `POLL_INTERVAL` | `casehub.connectors.email-inbound.poll-interval-seconds` | `60` |
+| Property | Default | Notes |
+|---|---|---|
+| `casehub.connectors.email-inbound.host` | `""` | Blank → no-op (provider returns empty list) |
+| `casehub.connectors.email-inbound.port` | `993` | IMAPS default |
+| `casehub.connectors.email-inbound.tls` | `true` | Implicit SSL/TLS on connect |
+| `casehub.connectors.email-inbound.username` | `""` | |
+| `casehub.connectors.email-inbound.password` | `""` | |
+| `casehub.connectors.email-inbound.folder` | `"INBOX"` | |
+| `casehub.connectors.email-inbound.poll-interval-seconds` | `60` | |
 
-Resolved at `SettingsScope(Path.of("casehub", "connectors", "email-inbound"), Instant.now())`.
+No `casehub-platform-api` dependency. Future multi-tenant providers implement
+`EmailInboundAccountProvider` directly.
 
 ---
 
 ## InboundMessage Field Mapping
 
-| Field               | Value                                                  |
-|--------------------|--------------------------------------------------------|
-| `connectorId`      | `EmailInboundAccount.id()` (e.g. `"email-inbound"`)   |
-| `externalSenderId` | `From:` header — first address                         |
-| `externalChannelRef` | IMAP folder name (e.g. `"INBOX"`)                   |
-| `content`          | Plain text part if present; raw HTML if HTML-only; `""` if neither |
-| `receivedAt`       | `Instant.now()` at parse time                          |
-| `metadata`         | `"message-id"` → RFC 2822 Message-ID; `"subject"` → email subject |
+| Field | Value |
+|---|---|
+| `connectorId` | `EmailInboundAccount.id()` (e.g. `"email-inbound"`) — connector-type discriminator |
+| `externalSenderId` | `From:` header — `InternetAddress.getAddress()` (address only, not display name) |
+| `externalChannelRef` | First address from `To:` header — the recipient address that received the message |
+| `content` | Plain text part if present; raw HTML if HTML-only; `""` if neither. Recursive extraction (see below). |
+| `receivedAt` | `Message.getReceivedDate()` → `Message.getSentDate()` → `Instant.now()` (fallback chain) |
+| `metadata` | `"message-id"` → RFC 2822 Message-ID; `"subject"` → email subject; `"account-id"` → `EmailInboundAccount.id()` |
+
+`"account-id"` in metadata ensures observers can distinguish accounts even when
+`connectorId` is shared across a single-account deployment.
 
 ---
 
-## Poll Cycle
+## Poll Cycle (Per Account)
 
-Per account, each scheduled execution:
+1. Open `Folder` in READ_WRITE mode (using the shared `Session`; reconnect `Store` if needed)
+2. Search for UNSEEN messages: `folder.search(new FlagTerm(Flags.Flag.SEEN, false))`
+3. For each message:
+   a. Parse `From:` → `InternetAddress.getAddress()` → `externalSenderId`
+   b. Parse `To:` first address → `InternetAddress.getAddress()` → `externalChannelRef`
+   c. Extract content recursively (see Content Extraction below)
+   d. Read `Message-ID`, `Subject` headers → metadata
+   e. Resolve `receivedAt` via fallback chain
+   f. Construct `InboundMessage`, call `sink.receive()`
+   g. Mark message `SEEN` immediately after `sink.receive()` returns
+4. Close `Folder` and `Store` in `finally` block
 
-1. Open `jakarta.mail.Session` with account credentials and TLS settings
-2. Connect `Store` → open `Folder` in `READ_WRITE` mode
-3. Search for `UNSEEN` messages: `folder.search(new FlagTerm(Flags.Flag.SEEN, false))`
-4. For each message:
-   a. Parse `From:` address → `externalSenderId`
-   b. Extract content: prefer `text/plain` part; fall back to `text/html` part;
-      fall back to `""` for non-text content
-   c. Read `Message-ID` and `Subject` headers → `metadata`
-   d. Construct `InboundMessage`, call `sink.receive()`
-   e. Mark message `SEEN` immediately after `sink.receive()` returns
-5. Close `Folder` and `Store` in `finally` block
+**Mark-SEEN timing:** per-message immediately after delivery. A crash downstream
+will not redeliver already-processed messages on the next poll. However, if
+`stop()` interrupts between `sink.receive()` returning and the SEEN flag write,
+the message has been delivered but will not be marked SEEN — it will be
+redelivered on next startup. **This is at-least-once delivery.** Observers must
+be idempotent on message redelivery.
 
-**Mark-SEEN timing:** per-message immediately after delivery, not batch at end.
-A downstream crash after some deliveries will not redeliver already-processed
-messages on the next poll.
+---
+
+## Content Extraction
+
+MIME structures are nested. A naive top-level type check fails for
+`multipart/mixed` envelopes that contain a `multipart/alternative` subtree:
+
+```
+multipart/mixed
+  └── multipart/alternative
+        ├── text/plain  ← want this
+        └── text/html
+  └── application/pdf   ← ignore
+```
+
+Algorithm: recursive descent, prefer depth-first `text/plain`, fall back to
+depth-first `text/html`, fall back to `""`. Binary parts (attachments) are
+silently ignored in v1 (see connectors#10 for attachment support).
+
+```
+extractText(part):
+  if part is text/plain → return part content
+  if part is multipart → recurse each body part, return first text/plain found
+  return null
+
+extractHtml(part):
+  if part is text/html → return part content
+  if part is multipart → recurse each body part, return first text/html found
+  return null
+
+content = extractText(message) ?? extractHtml(message) ?? ""
+```
 
 ---
 
@@ -123,28 +187,46 @@ messages on the next poll.
 
 | Situation | Behaviour |
 |---|---|
-| IMAP connection failure | Log WARNING with account id; close connections in `finally`; retry next scheduled poll |
+| IMAP connection failure during poll | Log WARNING with account id; close connections in `finally`; retry next scheduled poll |
 | `sink.receive()` throws | Log SEVERE; mark message SEEN anyway (prevents infinite redelivery loop); continue with remaining messages |
-| `stop()` during active poll | `shutdownNow()` — in-progress IMAP session is abandoned; no shared state, safe to discard |
+| `stop()` during active poll | `shutdownNow()` — in-progress IMAP session abandoned. May produce one redelivery on next startup (at-least-once; see above) |
 | Provider returns empty list | `start()` starts no threads; `stop()` is a no-op |
 
-No backoff/retry in v1 — connection failures retry at the next scheduled interval.
+No backoff in v1. Connection failures retry at the next scheduled interval.
+
+---
+
+## Thread Management
+
+Each account gets its own single-threaded `ScheduledExecutorService` with a
+named daemon thread factory:
+
+```java
+Executors.newSingleThreadScheduledExecutor(r -> {
+    Thread t = new Thread(r, "email-inbound-" + account.id() + "-poller");
+    t.setDaemon(true);  // prevents hung IMAP from blocking JVM shutdown
+    return t;
+});
+```
+
+Named threads are distinguishable in logs and thread dumps. Daemon threads
+allow clean JVM shutdown even if an IMAP call is blocked.
 
 ---
 
 ## New Dependencies
 
-**`email/pom.xml`:**
+**`email-inbound/pom.xml`:**
 
 | Artifact | Scope | Reason |
 |---|---|---|
-| `casehub-platform-api` | compile | `Preferences`, `PreferenceKey`, `Path`, `SettingsScope` |
+| `casehub-connectors-core` | compile | `InboundConnector`, `InboundMessage`, `InboundMessageSink` |
 | `org.eclipse.angus:angus-mail` | compile | Jakarta Mail implementation — IMAP transport |
-| `casehub-platform` | test | `MockPreferenceProvider @DefaultBean` for `@QuarkusTest` |
+| `io.quarkus:quarkus-junit` | test | `@QuarkusTest` |
+| `com.icegreen:greenmail-junit5` | test | Embedded IMAP+SMTP server |
+| `org.assertj:assertj-core` | test | Assertions |
 
-**Cross-repo dependency table in PLATFORM.md:** add row for
-`casehub-platform-api → casehub-connectors / email` (Preferences + PreferenceKey
-in `DefaultEmailInboundAccountProvider`).
+No dependency on `casehub-platform-api`. No dependency on `quarkus-mailer`.
 
 ---
 
@@ -152,27 +234,31 @@ in `DefaultEmailInboundAccountProvider`).
 
 ### Unit tests — `EmailInboundConnectorTest` (no Quarkus container)
 
-Uses Greenmail (embedded IMAP+SMTP, no Docker) as the IMAP server.
+Uses Greenmail (embedded IMAP+SMTP, no Docker). `InboundMessageSink` is a plain
+capturing lambda.
 
 | Test | Assertion |
 |---|---|
 | No UNSEEN messages | Sink not called |
 | Single plain-text message | Correct `InboundMessage` fields; message marked SEEN |
 | HTML-only message | Raw HTML in `content` |
-| Multipart with plain text | Plain text extracted; HTML part ignored |
+| Multipart/alternative | Plain text extracted; HTML part ignored |
+| Multipart/mixed with nested alternative + attachment | Plain text extracted; attachment silently ignored |
 | Multiple UNSEEN messages | All delivered; all marked SEEN |
 | Second poll after first | Already-SEEN messages not redelivered |
 | Provider returns empty list | No threads started; `stop()` is no-op |
 | IMAP connection failure | Exception logged; no sink call; no crash |
 | `sink.receive()` throws | Message still marked SEEN; remaining messages processed |
+| Fallback receivedAt | When `getReceivedDate()` returns null, `getSentDate()` used; when both null, `Instant.now()` used |
 
 ### Integration test — `EmailInboundConnectorQuarkusTest`
 
-`@QuarkusTest` with Greenmail started via `@BeforeAll`. Host/port fed via
-`@TestProfile` MP Config overrides.
+`@QuarkusTest` with Greenmail started via `@BeforeAll`. IMAP host/port fed via
+`@TestProfile` MP Config overrides (standard `casehub.connectors.email-inbound.*`
+properties).
 
-One happy-path test: send plain-text email to Greenmail → poll fires → CDI
-event received by test observer → assert `InboundMessage` fields correct.
+One happy-path test: send plain-text email to Greenmail → poll fires → CDI event
+received by test observer → assert `InboundMessage` fields correct.
 
 ### `DefaultEmailInboundAccountProviderTest`
 
@@ -189,8 +275,8 @@ event received by test observer → assert `InboundMessage` fields correct.
 |---|---|
 | PP-20260529-7b94ab — inbound connector type separation | ✅ Implements `InboundConnector` (pull-based); no `WebhookInboundConnector` involved |
 | PP-20260529-b7765c — constant-time HMAC | ✅ Not applicable (no signature verification) |
-| PLATFORM.md boundary rules — no parallel preference types | ✅ Using `casehub-platform-api` `PreferenceKey`/`Preferences` directly |
-| casehub-platform-dependency-scope | ✅ `casehub-platform-api` at compile; `casehub-platform` (mocks) at test |
+| PLATFORM.md — no parallel preference types | ✅ Not using Preferences; `@ConfigProperty` for static IMAP config |
+| Module tier structure — optional dependency separation | ✅ Separate `email-inbound` module; no forced coupling with `quarkus-mailer` |
 
 ---
 

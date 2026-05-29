@@ -2,7 +2,8 @@
 
 **Issue:** casehubio/connectors#4  
 **Branch:** `issue-4-inbound-connector-spi`  
-**Date:** 2026-05-29
+**Date:** 2026-05-29  
+**Revision:** 2 (post code-review)
 
 ---
 
@@ -21,10 +22,10 @@ WorkItem creation) but no transport layer to feed it.
 
 **In scope — this issue:**
 - `InboundConnector` SPI and supporting types in `core`
-- `WebhookInboundConnector` abstract base and sealed result type in `core`
+- `WebhookInboundConnector` standalone abstract base and sealed result type in `core`
 - `InboundConnectorService` CDI bean in `core`
 - New `webhook` module with `WebhookRouter` (JAX-RS) and four concrete implementations:
-  Slack, Teams, WhatsApp, Twilio SMS
+  Slack, Teams (Outgoing Webhooks), WhatsApp, Twilio SMS
 - Full test coverage: pure-Java unit tests for connectors; `@QuarkusTest` for the router
 
 **Explicitly out of scope — filed as follow-up issues:**
@@ -38,22 +39,29 @@ WorkItem creation) but no transport layer to feed it.
 ## Design Principles
 
 **Symmetric with outbound.** The outbound pattern is `Connector` SPI + `ConnectorService`
-CDI bean. Inbound mirrors it: `InboundConnector` SPI + `InboundConnectorService`. Callers
-(CDI observers) receive `InboundMessage` events; they do not interact with connectors directly.
+CDI bean. Inbound mirrors it: `InboundConnector` SPI + `InboundConnectorService`. CDI
+observers receive `InboundMessage` events; they do not interact with connectors directly.
+
+**Pull and webhook are distinct transports.** Pull-based connectors (IMAP polling) have an
+active lifecycle — `start(sink)`/`stop()` — managed by `InboundConnectorService`.
+Webhook-based connectors are passive: their lifecycle is JAX-RS. These are different enough
+that a unified interface with no-op lifecycle methods would be misleading. `InboundConnector`
+covers pull; `WebhookInboundConnector` is standalone. Both deliver messages through
+`InboundConnectorService.receive()`, which is the single CDI event bus.
 
 **Pure delivery infrastructure.** No domain knowledge here. An `InboundMessage` carries
-transport metadata (`externalSenderId`, `externalChannelRef`) — it does not interpret the
-message or decide what to do with it. That is the job of the Qhorus bridge (connectors#6)
-and the routing layer (work#234).
+transport metadata — it does not interpret the message or decide what to do with it. That
+is the job of the Qhorus bridge (connectors#6) and the routing layer (work#234).
 
-**Impossible to misuse.** The `WebhookResult` sealed type forces the router to handle every
-outcome — `Delivered`, `Challenged`, `Ignored`, `Unauthorized`. Signature verification
-cannot be skipped by accident; returning `Unauthorized` is the only way to signal auth
-failure. Java 21 exhaustive pattern matching makes this ergonomic.
+**200 OK always, security events logged.** All four webhook platforms (Slack, Twilio,
+WhatsApp, Teams) retry on non-2xx responses — Slack for up to 30 days with exponential
+backoff. Returning 401 for signature failures triggers retry storms and leaks information
+to probers. `WebhookResult.Unauthorized` maps to HTTP 200 with a `SECURITY` log entry at
+`WARNING` level. The reject is invisible to the sender; it is visible in logs and metrics.
 
-**Zero cost when absent.** The `webhook` module is an optional submodule. Deployments that
-do not need inbound webhooks do not include it. `core` gains the SPI types only — no REST
-infrastructure in the base artifact.
+**Constant-time HMAC comparison everywhere.** All signature verification uses
+`MessageDigest.isEqual(expected, actual)`, never `String.equals()` or `Arrays.equals()`.
+Timing attacks on webhook HMAC verification are a real exploit vector.
 
 ---
 
@@ -70,27 +78,45 @@ Root `pom.xml` module order: `core` → `webhook` → `email`.
 `webhook` dependencies: `casehub-connectors` (core) + `quarkus-rest`.
 
 The same reason `email` is separate from `core` (quarkus-mailer is optional) applies here:
-`quarkus-rest` should not be a mandatory dependency for deployments that only use outbound.
+`quarkus-rest` must not be a mandatory dependency for deployments that only use outbound.
 
 ---
 
 ## Core Types
 
-### `InboundConnector` SPI
+### `HttpMethod` enum
+
+```java
+package io.casehub.connectors;
+
+public enum HttpMethod { GET, POST }
+```
+
+Used in `WebhookRequest`. Eliminates string comparison (`"POST".equals(...)`) and associated
+typo risk throughout connector implementations.
+
+### `InboundConnector` SPI — pull-based transports only
 
 ```java
 package io.casehub.connectors;
 
 public interface InboundConnector {
+    /**
+     * Unique identifier. Must be lowercase, URL-safe, no slashes or spaces
+     * (e.g. {@code "email-inbound"}). Validated at registration.
+     */
     String id();
     void start(InboundMessageSink sink);
     void stop();
 }
 ```
 
-`start()` is called once at Quarkus startup with the sink. Pull-based connectors (polling)
-use the sink to deliver messages from their background loop. Webhook-based connectors override
-`start()`/`stop()` as no-ops via `WebhookInboundConnector`.
+This interface is for **pull-based connectors only** (IMAP polling, connectors#7 and similar).
+`start()` is called once at Quarkus startup with the sink; the connector uses it to deliver
+messages from its background loop. `stop()` is called at shutdown.
+
+Webhook-based connectors do **not** implement this interface — they extend
+`WebhookInboundConnector` (see below), which is a separate type with no lifecycle methods.
 
 ### `InboundMessageSink`
 
@@ -119,9 +145,9 @@ public record InboundMessage(
 | `connectorId` | Source connector id — `"slack-inbound"`, `"twilio-sms-inbound"`. Observers filter on this. |
 | `externalSenderId` | Who sent it — Slack user ID, E.164 phone number, email address |
 | `externalChannelRef` | Where it came from — Slack channel ID, Teams conversation ID, WhatsApp destination number |
-| `content` | Message text |
-| `receivedAt` | `Instant.now()` at parse time |
-| `metadata` | Connector-specific extras — Slack workspace ID, message timestamp, Twilio message SID, etc. Observers that do not recognise a key ignore it. |
+| `content` | Message text. **Text content only in v1.** WhatsApp images, audio, and documents are not delivered as binary — `content` is set to the media URL for media messages, or empty string if no URL is available. This is a documented v1 limitation; binary media support is out of scope. |
+| `receivedAt` | `Instant.now()` at parse time in the connector |
+| `metadata` | Connector-specific extras — Slack workspace ID, message timestamp, Twilio message SID, WhatsApp message ID, etc. Observers that do not recognise a key ignore it. |
 
 ### `WebhookRequest`
 
@@ -130,8 +156,8 @@ public record WebhookRequest(
     String body,
     Map<String, List<String>> headers,   // keys normalised to lower-case by the router
     Map<String, String> queryParams,
-    String method,                        // "GET" or "POST"
-    String requestUrl                     // full URL, e.g. "https://example.com/connectors/twilio-sms-inbound/webhook"
+    HttpMethod method,
+    String requestUrl                     // full URL, e.g. "https://api.casehub.io/connectors/twilio-sms-inbound/webhook"
 ) {}
 ```
 
@@ -140,11 +166,23 @@ boundary so that connector implementations and tests have no framework dependenc
 
 `headers` keys are **normalised to lower-case** by the router before building the record.
 HTTP headers are case-insensitive; lower-casing at the boundary means connectors use
-`headers.get("x-slack-signature")` everywhere without case-insensitive lookup logic.
+`request.headers().get("x-slack-signature")` throughout without per-site case handling.
 
-`requestUrl` is required for Twilio's signature scheme: `X-Twilio-Signature` is HMAC-SHA1
-over the full URL concatenated with sorted form params. The router populates it from
-`UriInfo.getAbsolutePath().toString()` (POST) or `UriInfo.getRequestUri().toString()` (GET).
+`requestUrl` is required for Twilio's `X-Twilio-Signature` scheme: HMAC-SHA1 over the full
+URL + sorted form params. The router populates it from `UriInfo.getAbsolutePath().toString()`
+for POST and `UriInfo.getRequestUri().toString()` for GET.
+
+**Reverse proxy note for Twilio:** If the service runs behind an ingress or load balancer,
+the container URL (`http://10.0.0.1:8080/connectors/...`) differs from what Twilio signed
+(`https://api.casehub.io/connectors/...`). Configure:
+
+```properties
+quarkus.http.proxy.proxy-address-forwarding=true
+quarkus.http.proxy.allow-forwarded=true
+```
+
+Without this, every Twilio request fails signature verification silently (returns `Ignored()` +
+WARNING log).
 
 ### `WebhookResult`
 
@@ -153,6 +191,7 @@ public sealed interface WebhookResult {
     record Delivered(List<InboundMessage> messages)            implements WebhookResult {}
     record Challenged(String responseBody, String contentType) implements WebhookResult {}
     record Ignored()                                           implements WebhookResult {}
+    /** Signature invalid or replay detected. Maps to HTTP 200 + SECURITY log. See below. */
     record Unauthorized()                                      implements WebhookResult {}
 }
 ```
@@ -161,24 +200,43 @@ public sealed interface WebhookResult {
 webhook call. `Challenged` carries `contentType` because Slack expects `application/json`
 while WhatsApp expects `text/plain`.
 
-### `WebhookInboundConnector`
+**`Unauthorized` → HTTP 200, not 401.** All four platforms retry on non-2xx. Returning 401
+for a signature failure causes retry storms (Slack retries for up to 30 days) and leaks
+information to probers. The router maps `Unauthorized` to 200 OK and logs a `WARNING`-level
+security event with the connector id and truncated request summary. The platform never knows
+the request was rejected; the operator sees it in logs.
+
+### `WebhookInboundConnector` — webhook-based transports, standalone
 
 ```java
-public abstract class WebhookInboundConnector implements InboundConnector {
+public abstract class WebhookInboundConnector {
 
-    @Override
-    public final void start(InboundMessageSink sink) {}
+    /**
+     * Unique identifier. Must be lowercase, URL-safe, no slashes or spaces.
+     * Also serves as the URL path segment: POST /connectors/{id}/webhook.
+     */
+    public abstract String id();
 
-    @Override
-    public final void stop() {}
-
+    /**
+     * Handle an inbound HTTP request (GET or POST).
+     * Must never throw — return {@link WebhookResult.Unauthorized} or
+     * {@link WebhookResult.Ignored} on error rather than propagating exceptions.
+     */
     public abstract WebhookResult handle(WebhookRequest request);
 }
 ```
 
-`final` on `start()`/`stop()` enforces the abstraction: webhook connector lifecycle is owned
-by JAX-RS. If a webhook connector needs startup initialisation beyond its endpoint, it uses
-`@Observes StartupEvent` directly — that concern is orthogonal.
+`WebhookInboundConnector` does **not** implement `InboundConnector`. The two types are
+independent:
+
+- `InboundConnector`: pull-based lifecycle (start/stop), managed by `InboundConnectorService`
+- `WebhookInboundConnector`: stateless handler, managed by `WebhookRouter`
+
+Both deliver messages through `InboundConnectorService.receive()`. There are no shared
+lifecycle no-ops, and no `instanceof` checks needed.
+
+`WebhookRouter` has its own CDI registry: `@All List<WebhookInboundConnector>`. The CDI
+type hierarchy keeps the two lists separate.
 
 ### `InboundConnectorService`
 
@@ -186,44 +244,54 @@ by JAX-RS. If a webhook connector needs startup initialisation beyond its endpoi
 @ApplicationScoped
 public class InboundConnectorService {
 
-    private final Map<String, InboundConnector> registry;
+    private final Map<String, InboundConnector> pullRegistry;
     private final Event<InboundMessage> messageEvent;
 
-    InboundConnectorService(@All List<InboundConnector> connectors,
+    InboundConnectorService(@All List<InboundConnector> pullConnectors,
                             Event<InboundMessage> messageEvent) {
         this.messageEvent = messageEvent;
-        this.registry = connectors.stream().collect(Collectors.toMap(
+        this.pullRegistry = pullConnectors.stream().collect(Collectors.toMap(
             InboundConnector::id, Function.identity(),
             (a, b) -> { throw new IllegalStateException(
                 "Duplicate inbound connector id: '" + a.id() + "'"); }));
     }
 
     void onStart(@Observes StartupEvent ignored) {
-        registry.values().forEach(c -> c.start(this::receive));
+        pullRegistry.values().forEach(c -> c.start(this::receive));
     }
 
     void onStop(@Observes ShutdownEvent ignored) {
-        registry.values().forEach(InboundConnector::stop);
+        pullRegistry.values().forEach(InboundConnector::stop);
     }
 
+    /**
+     * Fire a synchronous CDI {@code Event<InboundMessage>}. Called by pull connectors
+     * via the sink and directly by {@code WebhookRouter} for webhook connectors.
+     *
+     * <p>CDI fire is synchronous. Observers that require async processing must dispatch
+     * to their own executor — do not perform blocking I/O in an {@code @Observes}
+     * method. Slack's retry deadline is 3 seconds; a slow observer breaks that budget.
+     */
     public void receive(InboundMessage message) {
         messageEvent.fire(message);
     }
 
-    public Optional<InboundConnector> find(String id) {
-        return Optional.ofNullable(registry.get(id));
-    }
-
-    public Set<String> ids() {
-        return Set.copyOf(registry.keySet());
+    public Set<String> pullIds() {
+        return Set.copyOf(pullRegistry.keySet());
     }
 }
 ```
 
-Duplicate id detection mirrors `ConnectorService`. `receive()` fires a **synchronous** CDI
-event — observers that need async processing own their own dispatch. Synchronous fire keeps
-error propagation predictable and avoids the `@ObservesAsync` silent-delivery gotcha in
-`@QuarkusTest` (GE-20260513-b15933).
+**ID validation** is performed at construction for pull connectors. Webhook connector IDs
+are validated at `WebhookRouter` construction. Both validate: lowercase, URL-safe, no slashes
+or spaces. Use `Pattern.matches("[a-z0-9][a-z0-9\\-]*", id)` and throw `IllegalStateException`
+on violation — startup failure is better than a silent HTTP routing bug discovered in
+production.
+
+**CDI event is synchronous.** Observers must not perform blocking I/O inline. The Qhorus
+bridge (connectors#6) must dispatch asynchronously (e.g. via `Event.fireAsync()` internally,
+or a `ManagedExecutor`) before writing to the database. Slack's 3-second ACK deadline leaves
+no margin for a synchronous DB write in the observer chain.
 
 ---
 
@@ -236,6 +304,8 @@ error propagation predictable and avoids the `@ObservesAsync` silent-delivery go
 @ApplicationScoped
 public class WebhookRouter {
 
+    private static final Logger LOG = Logger.getLogger(WebhookRouter.class.getName());
+
     private final Map<String, WebhookInboundConnector> webhookRegistry;
     private final InboundConnectorService service;
 
@@ -247,6 +317,8 @@ public class WebhookRouter {
             WebhookInboundConnector::id, Function.identity(),
             (a, b) -> { throw new IllegalStateException(
                 "Duplicate webhook connector id: '" + a.id() + "'"); }));
+        // Validate ID format at startup for all webhook connectors
+        webhookRegistry.keySet().forEach(WebhookRouter::validateId);
     }
 
     @POST
@@ -260,30 +332,24 @@ public class WebhookRouter {
             body,
             lowerCaseKeys(httpHeaders.getRequestHeaders()),
             Map.of(),
-            "POST",
+            HttpMethod.POST,
             uriInfo.getAbsolutePath().toString()));
     }
 
     @GET
     @Path("/{id}/webhook")
     public Response get(@PathParam("id") String id,
+                        @Context HttpHeaders httpHeaders,
                         @Context UriInfo uriInfo) {
         Map<String, String> flat = uriInfo.getQueryParameters().entrySet().stream()
             .collect(Collectors.toMap(Map.Entry::getKey,
                 e -> e.getValue().isEmpty() ? "" : e.getValue().get(0)));
         return dispatch(id, new WebhookRequest(
-            "", Map.of(), flat, "GET",
+            "",
+            lowerCaseKeys(httpHeaders.getRequestHeaders()),
+            flat,
+            HttpMethod.GET,
             uriInfo.getRequestUri().toString()));
-    }
-
-    // HTTP headers are case-insensitive; normalise at the boundary so connectors
-    // use simple Map.get("x-slack-signature") without case handling.
-    private static Map<String, List<String>> lowerCaseKeys(MultivaluedMap<String, String> headers) {
-        return headers.entrySet().stream()
-            .collect(Collectors.toMap(
-                e -> e.getKey().toLowerCase(Locale.ROOT),
-                Map.Entry::getValue,
-                (a, b) -> { List<String> merged = new ArrayList<>(a); merged.addAll(b); return merged; }));
     }
 
     private Response dispatch(String id, WebhookRequest request) {
@@ -292,112 +358,192 @@ public class WebhookRouter {
             return Response.status(404)
                 .entity("No webhook connector registered for id '" + id + "'").build();
         }
-        return switch (connector.handle(request)) {
-            case WebhookResult.Delivered(var msgs) -> {
-                msgs.forEach(service::receive);
-                yield Response.ok().build();
-            }
-            case WebhookResult.Challenged(var body, var ct) ->
-                Response.ok(body).type(ct).build();
-            case WebhookResult.Ignored()      -> Response.ok().build();
-            case WebhookResult.Unauthorized() -> Response.status(401).build();
-        };
+        try {
+            return switch (connector.handle(request)) {
+                case WebhookResult.Delivered(var msgs) -> {
+                    msgs.forEach(service::receive);
+                    yield Response.ok().build();
+                }
+                case WebhookResult.Challenged(var body, var ct) ->
+                    Response.ok(body).type(ct).build();
+                case WebhookResult.Ignored() -> Response.ok().build();
+                case WebhookResult.Unauthorized() -> {
+                    // Return 200 to suppress platform retries. Log the security event.
+                    // Non-2xx triggers Slack retries for up to 30 days.
+                    LOG.warning("SECURITY: rejected webhook request for connector '"
+                        + id + "' — signature invalid or replay detected. method="
+                        + request.method() + " url=" + request.requestUrl());
+                    yield Response.ok().build();
+                }
+            };
+        } catch (Exception e) {
+            // Connector.handle() threw — return 200 to suppress retries, log the failure.
+            LOG.log(Level.SEVERE, "Unexpected exception in webhook connector '" + id
+                + "': " + e.getMessage(), e);
+            return Response.ok().build();
+        }
+    }
+
+    // HTTP headers are case-insensitive — normalise at the boundary.
+    private static Map<String, List<String>> lowerCaseKeys(
+            MultivaluedMap<String, String> headers) {
+        return headers.entrySet().stream().collect(Collectors.toMap(
+            e -> e.getKey().toLowerCase(Locale.ROOT),
+            Map.Entry::getValue,
+            (a, b) -> { List<String> m = new ArrayList<>(a); m.addAll(b); return m; }));
+    }
+
+    private static void validateId(String id) {
+        if (!id.matches("[a-z0-9][a-z0-9\\-]*")) {
+            throw new IllegalStateException(
+                "Webhook connector id '" + id
+                + "' is invalid — must be lowercase, URL-safe, no slashes or spaces");
+        }
     }
 }
 ```
-
-The router has its own `Map<String, WebhookInboundConnector>` — CDI's
-`@All List<WebhookInboundConnector>` gives the correctly-typed sublist without a cast.
-`InboundConnectorService` independently holds `@All List<InboundConnector>` (polymorphic).
-No duplication of state — two typed views of the same CDI beans.
 
 ### Concrete Implementations
 
-All four webhook connectors follow the same structure:
+All four extend `WebhookInboundConnector`. Shared contract for all implementations:
 
-```java
-@ApplicationScoped
-public class SlackInboundConnector extends WebhookInboundConnector {
+- **Constant-time HMAC comparison**: `MessageDigest.isEqual(expected, actual)`. Never
+  `String.equals()` or `Arrays.equals()` — both are timing-attackable.
+- **Blank secret → `Ignored()` + WARNING log**: connector is present but inactive. This is
+  a deliberate choice matching the outbound no-op pattern. **Observability gap:** from the
+  platform's perspective, `Ignored()` and `Delivered()` both produce HTTP 200. A message
+  dropped due to a missing secret is invisible without consulting logs. There is currently no
+  operational state on connectors. This gap is acknowledged; connectors#6 may surface it via
+  bridge metrics.
+- **Exception safety**: `handle()` must not throw. Catch all exceptions internally, return
+  `Ignored()` with an ERROR log.
 
-    public static final String ID = "slack-inbound";
+---
 
-    @ConfigProperty(name = "casehub.connectors.slack-inbound.signing-secret",
-                    defaultValue = "")
-    String signingSecret;
+#### `SlackInboundConnector` — id: `slack-inbound`
 
-    @Override public String id() { return ID; }
+**Integration model:** Slack Incoming Events API (not Bot Framework).
 
-    @Override
-    public WebhookResult handle(WebhookRequest request) {
-        if (signingSecret.isBlank()) {
-            LOG.warning("slack-inbound: signing-secret not configured — ignoring request");
-            return new WebhookResult.Ignored();
-        }
-        if ("POST".equals(request.method()) && isUrlVerification(request.body())) {
-            return new WebhookResult.Challenged(challengeResponse(request.body()),
-                                                "application/json");
-        }
-        if (!verifySignature(request)) return new WebhookResult.Unauthorized();
-        List<InboundMessage> messages = parseMessages(request.body());
-        return messages.isEmpty()
-            ? new WebhookResult.Ignored()
-            : new WebhookResult.Delivered(messages);
-    }
-    // verifySignature: HMAC-SHA256("v0:<timestamp>:<body>") vs X-Slack-Signature
-    // parseMessages: filters bot_id, non-message event types
-}
-```
+**Signature:** HMAC-SHA256 of `"v0:" + timestamp + ":" + body` using the signing secret.
+Compare result to `x-slack-signature` header (`v0=<hex>`). Use `MessageDigest.isEqual()`.
 
-WhatsApp additionally handles the `GET` challenge:
+**Replay prevention:** Reject requests where `x-slack-request-timestamp` is more than
+5 minutes from the current time (`Math.abs(Instant.now().getEpochSecond() - ts) > 300`).
+This must be checked **before** the HMAC computation to avoid wasting CPU on stale requests.
+Slack explicitly requires this check in their security documentation. Teams, WhatsApp, and
+Twilio do not embed request timestamps in their signing schemes — no equivalent check for
+those connectors.
 
-```java
-if ("GET".equals(request.method())) {
-    if ("subscribe".equals(request.queryParams().get("hub.mode"))
-            && verifyToken.equals(request.queryParams().get("hub.verify_token"))) {
-        return new WebhookResult.Challenged(
-            request.queryParams().get("hub.challenge"), "text/plain");
-    }
-    return new WebhookResult.Unauthorized();
-}
-```
+**URL verification bypass:** If the POST body is a `{"type":"url_verification","challenge":"..."}`,
+the connector returns `Challenged({"challenge":"..."}, "application/json")` **without
+checking the HMAC signature**. This is intentional — Slack sends the challenge before the
+signing secret is active in the workspace. A future reader must not "fix" this by adding a
+sig check; it would break initial webhook setup in live workspaces. The challenge itself
+serves as the authentication for this one event type.
 
-**Connector IDs and signature schemes:**
+**Message filtering:** Return `Ignored()` for events with a `bot_id` field, events where
+`type != "event_callback"`, and `event.type != "message"`.
 
-| Connector | ID | Signature |
-|-----------|-----|-----------|
-| `SlackInboundConnector` | `slack-inbound` | HMAC-SHA256 of `v0:<ts>:<body>` vs `X-Slack-Signature` |
-| `TeamsInboundConnector` | `teams-inbound` | HMAC-SHA256 of body vs `Authorization` header |
-| `WhatsAppInboundConnector` | `whatsapp-inbound` | HMAC-SHA256 of body vs `X-Hub-Signature-256` |
-| `TwilioSmsInboundConnector` | `twilio-sms-inbound` | HMAC-SHA1 of URL+params vs `X-Twilio-Signature` |
+**Config:** `casehub.connectors.slack-inbound.signing-secret` (default: blank)
 
-**Webhook URLs:**  
-`POST /connectors/{connector-id}/webhook` — the connector's `id()` is the path segment.
+---
 
-**Configuration:**
+#### `TeamsInboundConnector` — id: `teams-inbound`
+
+**Integration model:** Teams [Outgoing Webhooks](https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook)
+(not Bot Framework / Azure AD OAuth). Teams Outgoing Webhooks use HMAC-SHA256 with a shared
+secret — no JWT, no Azure registration required. Bot Framework webhooks use JWT OAuth token
+validation and are a completely different implementation model. This spec targets Outgoing
+Webhooks.
+
+**Signature algorithm (Outgoing Webhooks):**
+1. Base64-decode the shared secret configured in Teams when the outgoing webhook was registered
+2. Compute `HMAC-SHA256(decoded_secret, utf8_bytes(body))`
+3. Base64-encode the HMAC result
+4. Compare to the `authorization` header value (`HMAC <base64>`) using `MessageDigest.isEqual()`
+
+Teams Outgoing Webhooks do not use GET challenges.
+
+**Config:** `casehub.connectors.teams-inbound.shared-secret` (default: blank, base64-encoded
+as provided by Teams)
+
+---
+
+#### `WhatsAppInboundConnector` — id: `whatsapp-inbound`
+
+**Integration model:** WhatsApp Business API (Meta Cloud API webhooks).
+
+**GET challenge (subscription verification):**
+- `hub.mode == "subscribe"` AND `hub.verify_token == configured-verify-token`
+- Return `Challenged(hub.challenge, "text/plain")`
+- Any other GET → `Unauthorized()`
+
+**POST signature:** `X-Hub-Signature-256: sha256=<hex>`. HMAC-SHA256 of the raw body using
+the app secret. Constant-time compare with `MessageDigest.isEqual()`.
+
+**Message parsing:** WhatsApp sends structured JSON with message objects. Text messages
+set `content` to message text. Media messages (image, audio, document, sticker) set
+`content` to the media URL if available, empty string otherwise (v1 limitation —
+see `InboundMessage.content` above).
+
+**Config:**
+- `casehub.connectors.whatsapp-inbound.app-secret` — HMAC signing key (default: blank)
+- `casehub.connectors.whatsapp-inbound.verify-token` — GET challenge token (default: blank)
+
+---
+
+#### `TwilioSmsInboundConnector` — id: `twilio-sms-inbound`
+
+**Integration model:** Twilio Webhooks (form-encoded POST).
+
+**Signature:** `X-Twilio-Signature` — HMAC-SHA1 of the full request URL concatenated with
+all POST parameters sorted alphabetically (key+value, no separator). The URL must match what
+Twilio used when it sent the request. See **reverse proxy note** in `WebhookRequest` above.
+
+Constant-time compare with `MessageDigest.isEqual()`.
+
+**Fields:** `From` (E.164 sender number) → `externalSenderId`; `To` (destination number) →
+`externalChannelRef`; `Body` → `content`.
+
+**Config:** `casehub.connectors.twilio-sms-inbound.auth-token` (default: blank — required
+for signature verification; same token used for outbound Twilio API calls)
+
+---
+
+## Configuration Summary
 
 | Property | Connector |
 |----------|-----------|
 | `casehub.connectors.slack-inbound.signing-secret` | Slack |
-| `casehub.connectors.teams-inbound.shared-secret` | Teams |
+| `casehub.connectors.teams-inbound.shared-secret` | Teams (base64, as shown in Teams UI) |
 | `casehub.connectors.whatsapp-inbound.app-secret` | WhatsApp POST sig |
 | `casehub.connectors.whatsapp-inbound.verify-token` | WhatsApp GET challenge |
 | `casehub.connectors.twilio-sms-inbound.auth-token` | Twilio |
 
-All default to blank. Blank secret = `Ignored()` + warning log. The connector remains in
-the CDI context but inactive — same fail-open pattern as outbound Twilio/WhatsApp.
+All default to blank. Blank = `Ignored()` + WARNING log on every request. See observability
+gap note under concrete implementations.
 
 ---
 
-## Authentication Note
+## Response-Time Constraints
 
-Webhook signature verification (Slack HMAC, X-Hub-Signature-256, X-Twilio-Signature) is
-**transport-layer authentication** — it proves the request originated from the platform, not
-an arbitrary caller. This is correctly in the connector, not in an RBAC/`@RolesAllowed`
-framework. It does not conflict with `auth-retrofit-readiness`: the protocol governs
-principal-based access control, not platform webhook signing.
+| Platform | ACK deadline | Retry behaviour on non-2xx |
+|----------|-------------|---------------------------|
+| Slack | **3 seconds** | Exponential backoff, up to 30 days |
+| Twilio | 15 seconds | Up to 11 retries over 24 hours |
+| WhatsApp | ~20 seconds | Platform-controlled retry |
+| Teams | ~5 seconds | Teams-controlled retry |
 
-`WebhookRouter` carries no `@Authenticated` or `@RolesAllowed` annotations, consistent with
-all other foundation REST resources.
+**Slack's 3-second deadline is the binding constraint** for the system as a whole.
+
+The router fires a synchronous CDI event (`messageEvent.fire()`). Observer chain total time
+must stay well under 3 seconds. The Qhorus bridge (connectors#6) **must not** perform
+synchronous database writes in its `@Observes InboundMessage` method. It must dispatch
+asynchronously (e.g. `Event.fireAsync()` internally or a `ManagedExecutor`) and return
+immediately.
+
+All webhook platforms receive HTTP 200 regardless of whether the message was processed
+successfully downstream — 200 means "transport accepted", not "message delivered to domain".
 
 ---
 
@@ -405,33 +551,40 @@ all other foundation REST resources.
 
 ### `core` — pure Java, no CDI
 
-**`InboundConnectorServiceTest`**
-- Registry construction: registers connectors, detects duplicate ids at construction
-- `find()`: known id returns connector; unknown id returns empty
-- `ids()`: returns all registered ids
-- Lifecycle: `onStart()` calls `start(sink)` on all connectors; `onStop()` calls `stop()`
-- `receive()`: calls the provided sink consumer (injected as a recording lambda in tests)
+**`InboundConnectorServiceTest`** (pull-only registry):
+- Registry construction: registers pull connectors, detects duplicate ids
+- `onStart()`: calls `start(sink)` only on pull connectors (no webhook connectors present)
+- `onStop()`: calls `stop()` on all pull connectors
+- `receive()`: calls the provided sink consumer (recording lambda)
+- ID validation: rejects non-URL-safe ids at construction
 
-**Per-connector unit tests** (e.g. `SlackInboundConnectorTest`)
+**Per-connector unit tests** (e.g. `SlackInboundConnectorTest`):
 - Valid signature + message event → `Delivered`
-- Invalid signature → `Unauthorized`
-- `url_verification` POST → `Challenged` with JSON body
+- Invalid signature → `Unauthorized` (constant-time path verified)
+- Slack url_verification POST → `Challenged` (no sig check — intentional)
+- Replay: timestamp > 5 minutes old → `Unauthorized` (before HMAC computed)
 - Bot message → `Ignored`
 - Blank signing secret → `Ignored` + warning
+- WhatsApp GET valid token → `Challenged("hub_challenge", "text/plain")`
+- WhatsApp GET wrong token → `Unauthorized`
+- Twilio form-encoded body → `Delivered` with correct field mapping
 
 ### `webhook` — `@QuarkusTest`
 
-**`WebhookRouterTest`**
+**`WebhookRouterTest`**:
 - Unknown connector id → 404
 - Valid Slack POST → 200; `InboundMessage` CDI event captured by test observer
-- Invalid Slack signature → 401
-- WhatsApp GET challenge → 200, response body = challenge token
-- WhatsApp GET with wrong verify token → 401
-- Twilio SMS form-encoded POST → 200; `InboundMessage` delivered
+- Invalid Slack signature → 200 (suppressed — not 401); security WARNING logged
+- Slack replay (stale timestamp) → 200; logged
+- `connector.handle()` throws → 200; ERROR logged; no exception propagated
+- WhatsApp GET challenge → 200, body = challenge token
+- WhatsApp GET wrong token → 200 (Unauthorized maps to 200)
+- Twilio form-encoded POST → 200; InboundMessage delivered
 
-Test secrets configured in `webhook/src/test/resources/application.properties`. A
+Test secrets in `webhook/src/test/resources/application.properties`. A
 `@ApplicationScoped` `@Observes InboundMessage` capture bean records fired events for
-assertion. Uses synchronous CDI fire — `@ObservesAsync` must not be used here (GE-20260513-b15933).
+assertion. Uses synchronous CDI fire — `@ObservesAsync` is not used here (GE-20260513-b15933
+documents silent non-delivery in `@QuarkusTest`).
 
 ---
 

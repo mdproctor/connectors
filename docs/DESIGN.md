@@ -2,10 +2,11 @@
 
 ## Purpose
 
-Lightweight outbound message delivery library for the casehubio platform.
-Provides a single CDI SPI — `Connector` — with built-in implementations for
+Outbound and inbound message connector library for the casehubio platform.
+Provides a `Connector` CDI SPI (outbound) and `InboundConnector` /
+`WebhookInboundConnector` SPIs (inbound) with built-in implementations for
 Slack, Teams, Twilio SMS, WhatsApp, and email. Callers decide when and what to
-send; this library handles the delivery.
+send; this library handles delivery in both directions.
 
 ---
 
@@ -26,17 +27,25 @@ path is visible in a single class.
 **Minimal scope.** This library does delivery only. No routing, scheduling,
 templating, or retry orchestration. Callers own those concerns.
 
+**CDI event bus for inbound.** Inbound transport is decoupled from processing via
+synchronous `Event<InboundMessage>`. Connectors deliver a message and return immediately
+— they have no knowledge of what happens next. Observers own their dispatch strategy
+and must not block the CDI fire for longer than Slack's 3-second retry deadline.
+
 ---
 
 ## Module Structure
 
 | Module | Artifact | Purpose |
 |--------|----------|---------|
-| `core` | `casehub-connectors` | SPI + Slack, Teams, Twilio SMS, WhatsApp |
-| `email` | `casehub-connectors-email` | Email via `quarkus-mailer` |
+| `core` | `casehub-connectors-core` | Outbound SPI + Slack, Teams, Twilio SMS, WhatsApp; inbound SPIs + `InboundConnectorService` |
+| `webhook` | `casehub-connectors-webhook` | Webhook inbound connectors (Slack, Teams, WhatsApp, Twilio SMS) + `WebhookRouter` JAX-RS |
+| `email` | `casehub-connectors-email` | Email outbound via `quarkus-mailer` |
 
-Email is a separate module because `quarkus-mailer` is an optional dependency —
-services that don't need email should not pull it in.
+`email` is a separate module because `quarkus-mailer` is an optional dependency —
+deployments that don't need email should not pull it in. `webhook` is separate for the
+same reason: `quarkus-rest` adds non-trivial weight and is unnecessary for outbound-only
+deployments.
 
 ---
 
@@ -59,6 +68,57 @@ Callers use this to select the right connector at runtime.
 
 **Custom connectors:** implement `Connector` as an `@ApplicationScoped` CDI bean.
 It will be discovered automatically alongside the built-in implementations.
+
+---
+
+## Inbound SPI
+
+Two distinct types handle inbound transports — not a unified interface — because their
+lifecycle semantics differ. Pull-based connectors (IMAP, polling) have an active
+lifecycle; webhook-based connectors are passive (their lifecycle is the JAX-RS endpoint).
+
+### `InboundConnector` — pull-based transports
+
+```java
+public interface InboundConnector {
+    String id();
+    void start(InboundMessageSink sink);
+    void stop();
+}
+```
+
+`start()` is called at Quarkus startup; the connector begins polling and calls `sink.receive()`
+when messages arrive. `stop()` is called at shutdown.
+
+### `WebhookInboundConnector` — webhook-based transports
+
+```java
+public abstract class WebhookInboundConnector {
+    public abstract String id();
+    public abstract WebhookResult handle(WebhookRequest request);
+}
+```
+
+Does **not** implement `InboundConnector`. No lifecycle methods — the JAX-RS
+`WebhookRouter` dispatches `GET|POST /connectors/{id}/webhook` to `handle()`. The
+`WebhookResult` sealed type (`Delivered`, `Challenged`, `Ignored`, `Unauthorized`)
+forces exhaustive handling in the router.
+
+Both types deliver via `InboundConnectorService.receive()` — the single CDI
+`Event<InboundMessage>` bus.
+
+**Built-in webhook implementations:**
+
+| ID | Platform | Signature |
+|----|----------|-----------|
+| `slack-inbound` | Slack Events API | HMAC-SHA256; url_verification; replay prevention |
+| `teams-inbound` | Teams Outgoing Webhooks | HMAC-SHA256 with base64-decoded key |
+| `whatsapp-inbound` | WhatsApp Business API | GET challenge + POST HMAC-SHA256 |
+| `twilio-sms-inbound` | Twilio SMS | HMAC-SHA1 over URL + sorted params (Twilio's algorithm) |
+
+**Security:** All HMAC comparisons use `MessageDigest.isEqual()` (constant-time).
+`Unauthorized` from POST → HTTP 200 (suppress retry storms); from GET → HTTP 403
+(admin console setup failure must be visible).
 
 ---
 
@@ -90,6 +150,27 @@ public record ConnectorMessage(
 | Email | Email address | Subject (`"Notification"` if blank) | Plain-text body |
 
 Convenience constructors are provided for the common cases (no attributes; body only).
+
+### `InboundMessage`
+
+```java
+public record InboundMessage(
+        String connectorId,
+        String externalSenderId,
+        String externalChannelRef,
+        String content,
+        Instant receivedAt,
+        Map<String, String> metadata) { }
+```
+
+| Field | Semantics |
+|-------|-----------|
+| `connectorId` | Source connector id (e.g. `"slack-inbound"`) — observers filter on this |
+| `externalSenderId` | Who sent it — Slack user ID, E.164 phone number, email address |
+| `externalChannelRef` | Where it came from — Slack channel ID, WhatsApp destination number, etc. |
+| `content` | Message text. **Text-only in v1** — media messages yield `content` = media URL or empty string |
+| `receivedAt` | `Instant.now()` at parse time in the connector |
+| `metadata` | Connector-specific extras (Slack workspace ID, Twilio message SID, etc.) |
 
 ---
 

@@ -17,7 +17,7 @@ import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.store.MailFolder;
 import com.icegreen.greenmail.user.GreenMailUser;
-import com.icegreen.greenmail.util.ServerSetupTest;
+import com.icegreen.greenmail.util.ServerSetup;
 import io.casehub.connectors.InboundMessage;
 import jakarta.mail.Transport;
 
@@ -28,8 +28,11 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 class EmailInboundConnectorTest {
 
+    // Use port 0 (OS-assigned) to avoid conflicts with GreenMailResource used by @QuarkusTest
     @RegisterExtension
-    static final GreenMailExtension GREEN_MAIL = new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+    static final GreenMailExtension GREEN_MAIL = new GreenMailExtension(new ServerSetup[]{
+            new ServerSetup(0, "localhost", ServerSetup.PROTOCOL_SMTP),
+            new ServerSetup(0, "localhost", ServerSetup.PROTOCOL_IMAP)})
             .withConfiguration(GreenMailConfiguration.aConfig()
                     .withUser("inbox@example.com", "password"))
             .withPerMethodLifecycle(false);

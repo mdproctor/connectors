@@ -3,7 +3,7 @@
 **Issue:** casehubio/connectors#4  
 **Branch:** `issue-4-inbound-connector-spi`  
 **Date:** 2026-05-29  
-**Revision:** 2 (post code-review)
+**Revision:** 3 (post second code-review)
 
 ---
 
@@ -53,11 +53,18 @@ covers pull; `WebhookInboundConnector` is standalone. Both deliver messages thro
 transport metadata — it does not interpret the message or decide what to do with it. That
 is the job of the Qhorus bridge (connectors#6) and the routing layer (work#234).
 
-**200 OK always, security events logged.** All four webhook platforms (Slack, Twilio,
-WhatsApp, Teams) retry on non-2xx responses — Slack for up to 30 days with exponential
-backoff. Returning 401 for signature failures triggers retry storms and leaks information
-to probers. `WebhookResult.Unauthorized` maps to HTTP 200 with a `SECURITY` log entry at
-`WARNING` level. The reject is invisible to the sender; it is visible in logs and metrics.
+**200 OK for POST failures; 4xx for GET challenge failures.** All four webhook platforms
+retry automated POST delivery on non-2xx — Slack for up to 30 days with exponential backoff.
+Returning non-2xx for a POST signature failure triggers retry storms and leaks information to
+probers. `WebhookResult.Unauthorized` from a POST maps to HTTP 200 + `WARNING` security log.
+
+GET challenge verification is different: it is a one-time admin action in a platform console
+(Meta, Teams admin center). The admin sees the HTTP status directly and needs a 4xx to know
+that configuration failed. Returning 200 for a wrong verify-token gives the admin a false
+success signal — the platform silently rejects the subscription and no webhook traffic
+arrives. `WebhookResult.Unauthorized` from a GET maps to HTTP 403 so the failure is visible.
+
+The router checks `request.method()` in the `Unauthorized` case to apply the correct mapping.
 
 **Constant-time HMAC comparison everywhere.** All signature verification uses
 `MessageDigest.isEqual(expected, actual)`, never `String.equals()` or `Arrays.equals()`.
@@ -191,7 +198,9 @@ public sealed interface WebhookResult {
     record Delivered(List<InboundMessage> messages)            implements WebhookResult {}
     record Challenged(String responseBody, String contentType) implements WebhookResult {}
     record Ignored()                                           implements WebhookResult {}
-    /** Signature invalid or replay detected. Maps to HTTP 200 + SECURITY log. See below. */
+    /** Signature invalid, replay detected, or challenge token wrong.
+     *  POST → HTTP 200 + SECURITY log (suppress retries).
+     *  GET  → HTTP 403 (admin setup failure — visible in platform console). */
     record Unauthorized()                                      implements WebhookResult {}
 }
 ```
@@ -200,11 +209,10 @@ public sealed interface WebhookResult {
 webhook call. `Challenged` carries `contentType` because Slack expects `application/json`
 while WhatsApp expects `text/plain`.
 
-**`Unauthorized` → HTTP 200, not 401.** All four platforms retry on non-2xx. Returning 401
-for a signature failure causes retry storms (Slack retries for up to 30 days) and leaks
-information to probers. The router maps `Unauthorized` to 200 OK and logs a `WARNING`-level
-security event with the connector id and truncated request summary. The platform never knows
-the request was rejected; the operator sees it in logs.
+**`Unauthorized` HTTP mapping depends on method.** For POST: 200 OK + WARNING security log
+(suppress automated retries — Slack retries for up to 30 days on non-2xx). For GET: 403
+(admin console setup failure — the admin sees this and knows to fix their configuration). The
+router applies the correct mapping based on `request.method()`.
 
 ### `WebhookInboundConnector` — webhook-based transports, standalone
 
@@ -219,8 +227,12 @@ public abstract class WebhookInboundConnector {
 
     /**
      * Handle an inbound HTTP request (GET or POST).
-     * Must never throw — return {@link WebhookResult.Unauthorized} or
-     * {@link WebhookResult.Ignored} on error rather than propagating exceptions.
+     *
+     * <p><b>Connector contract:</b> must not throw. Catch all exceptions internally and
+     * return {@link WebhookResult.Ignored} (or {@link WebhookResult.Unauthorized} for auth
+     * failures). The router wraps {@code handle()} in a try-catch as defense-in-depth
+     * against bugs, but that catch is a last resort — it is not a substitute for
+     * connector-level error handling.
      */
     public abstract WebhookResult handle(WebhookRequest request);
 }
@@ -250,10 +262,19 @@ public class InboundConnectorService {
     InboundConnectorService(@All List<InboundConnector> pullConnectors,
                             Event<InboundMessage> messageEvent) {
         this.messageEvent = messageEvent;
+        pullConnectors.forEach(c -> validateId(c.id()));
         this.pullRegistry = pullConnectors.stream().collect(Collectors.toMap(
             InboundConnector::id, Function.identity(),
             (a, b) -> { throw new IllegalStateException(
                 "Duplicate inbound connector id: '" + a.id() + "'"); }));
+    }
+
+    private static void validateId(String id) {
+        if (!id.matches("[a-z0-9][a-z0-9\\-]*")) {
+            throw new IllegalStateException(
+                "InboundConnector id '" + id
+                + "' is invalid — must be lowercase, URL-safe, no slashes or spaces");
+        }
     }
 
     void onStart(@Observes StartupEvent ignored) {
@@ -282,11 +303,10 @@ public class InboundConnectorService {
 }
 ```
 
-**ID validation** is performed at construction for pull connectors. Webhook connector IDs
-are validated at `WebhookRouter` construction. Both validate: lowercase, URL-safe, no slashes
-or spaces. Use `Pattern.matches("[a-z0-9][a-z0-9\\-]*", id)` and throw `IllegalStateException`
-on violation — startup failure is better than a silent HTTP routing bug discovered in
-production.
+**ID validation** runs at construction in both `InboundConnectorService` (pull connectors)
+and `WebhookRouter` (webhook connectors). The pattern `[a-z0-9][a-z0-9\-]*` enforces
+lowercase, URL-safe, no slashes or spaces. Startup failure is better than a silent HTTP
+routing bug discovered in production.
 
 **CDI event is synchronous.** Observers must not perform blocking I/O inline. The Qhorus
 bridge (connectors#6) must dispatch asynchronously (e.g. via `Event.fireAsync()` internally,
@@ -368,12 +388,16 @@ public class WebhookRouter {
                     Response.ok(body).type(ct).build();
                 case WebhookResult.Ignored() -> Response.ok().build();
                 case WebhookResult.Unauthorized() -> {
-                    // Return 200 to suppress platform retries. Log the security event.
-                    // Non-2xx triggers Slack retries for up to 30 days.
                     LOG.warning("SECURITY: rejected webhook request for connector '"
                         + id + "' — signature invalid or replay detected. method="
                         + request.method() + " url=" + request.requestUrl());
-                    yield Response.ok().build();
+                    // POST: return 200 to suppress automated platform retries
+                    //       (Slack retries non-2xx for up to 30 days).
+                    // GET:  return 403 — admin console setup; human sees it directly
+                    //       and needs a clear failure signal to fix their config.
+                    yield request.method() == HttpMethod.GET
+                        ? Response.status(403).build()
+                        : Response.ok().build();
                 }
             };
         } catch (Exception e) {
@@ -391,6 +415,11 @@ public class WebhookRouter {
             e -> e.getKey().toLowerCase(Locale.ROOT),
             Map.Entry::getValue,
             (a, b) -> { List<String> m = new ArrayList<>(a); m.addAll(b); return m; }));
+    }
+
+    /** Returns the ids of all registered webhook connectors. */
+    public Set<String> webhookIds() {
+        return Set.copyOf(webhookRegistry.keySet());
     }
 
     private static void validateId(String id) {
@@ -434,12 +463,23 @@ Slack explicitly requires this check in their security documentation. Teams, Wha
 Twilio do not embed request timestamps in their signing schemes — no equivalent check for
 those connectors.
 
-**URL verification bypass:** If the POST body is a `{"type":"url_verification","challenge":"..."}`,
-the connector returns `Challenged({"challenge":"..."}, "application/json")` **without
-checking the HMAC signature**. This is intentional — Slack sends the challenge before the
-signing secret is active in the workspace. A future reader must not "fix" this by adding a
-sig check; it would break initial webhook setup in live workspaces. The challenge itself
-serves as the authentication for this one event type.
+**Check ordering in `handle()`** (Slack-specific, matters for initial setup):
+
+1. URL verification check — **before** blank-secret guard
+2. Blank-secret guard → `Ignored()`
+3. Replay prevention (timestamp age check)
+4. HMAC signature verification
+5. Message parsing and filtering
+
+URL verification must be first because Slack sends it **before** the operator has configured
+the signing secret. If the blank-secret guard ran first, initial setup would always fail.
+Once a secret is configured, URL verification events bypass signature checking — the challenge
+is the authentication for this one event type.
+
+**URL verification bypass:** If the POST body is `{"type":"url_verification","challenge":"..."}`,
+the connector returns `Challenged({"challenge":"..."}, "application/json")` **without checking
+the HMAC signature**. This is intentional — documented here so a future reader does not "fix"
+it and break initial setup in live workspaces.
 
 **Message filtering:** Return `Ignored()` for events with a `bot_id` field, events where
 `type != "event_callback"`, and `event.type != "message"`.
@@ -462,7 +502,8 @@ Webhooks.
 3. Base64-encode the HMAC result
 4. Compare to the `authorization` header value (`HMAC <base64>`) using `MessageDigest.isEqual()`
 
-Teams Outgoing Webhooks do not use GET challenges.
+Teams Outgoing Webhooks do not use GET challenges. `handle()` returns `Ignored()` for
+`HttpMethod.GET` — no Teams admin flow triggers a GET to this endpoint.
 
 **Config:** `casehub.connectors.teams-inbound.shared-secret` (default: blank, base64-encoded
 as provided by Teams)
@@ -499,6 +540,10 @@ see `InboundMessage.content` above).
 **Signature:** `X-Twilio-Signature` — HMAC-SHA1 of the full request URL concatenated with
 all POST parameters sorted alphabetically (key+value, no separator). The URL must match what
 Twilio used when it sent the request. See **reverse proxy note** in `WebhookRequest` above.
+
+SHA-1 is Twilio's specified algorithm per their [webhook security docs](https://www.twilio.com/docs/usage/security);
+it is not configurable. Security audits that flag SHA-1 here should note it is a platform
+constraint, not a design choice.
 
 Constant-time compare with `MessageDigest.isEqual()`.
 
@@ -578,7 +623,7 @@ successfully downstream — 200 means "transport accepted", not "message deliver
 - Slack replay (stale timestamp) → 200; logged
 - `connector.handle()` throws → 200; ERROR logged; no exception propagated
 - WhatsApp GET challenge → 200, body = challenge token
-- WhatsApp GET wrong token → 200 (Unauthorized maps to 200)
+- WhatsApp GET wrong token → 403 (GET Unauthorized maps to 403, not 200)
 - Twilio form-encoded POST → 200; InboundMessage delivered
 
 Test secrets in `webhook/src/test/resources/application.properties`. A

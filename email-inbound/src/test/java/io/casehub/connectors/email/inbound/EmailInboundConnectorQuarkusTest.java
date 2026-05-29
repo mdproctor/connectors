@@ -1,12 +1,11 @@
 package io.casehub.connectors.email.inbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 import jakarta.inject.Inject;
 import jakarta.mail.Message;
@@ -58,11 +57,9 @@ class EmailInboundConnectorQuarkusTest {
             transport.sendMessage(msg, msg.getAllRecipients());
         }
 
-        // poll-interval-seconds=1 — await CDI event delivery within 5s
-        await().atMost(Duration.ofSeconds(5))
-                .until(() -> !capture.messages().isEmpty());
-
-        final InboundMessage delivered = capture.messages().get(0);
+        // poll-interval-seconds=1 — wait up to 2s for async CDI event delivery
+        final InboundMessage delivered = capture.poll(2, TimeUnit.SECONDS);
+        assertThat(delivered).isNotNull();
         assertThat(delivered.connectorId()).isEqualTo("email-inbound");
         assertThat(delivered.externalSenderId()).isEqualTo("sender@example.com");
         assertThat(delivered.externalChannelRef()).isEqualTo("inbox@example.com");

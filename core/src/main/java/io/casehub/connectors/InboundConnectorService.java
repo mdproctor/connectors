@@ -28,10 +28,10 @@ import io.quarkus.runtime.StartupEvent;
  * messages delivered via HTTP webhook, ensuring a single CDI event bus regardless of
  * transport.
  *
- * <h2>CDI event is synchronous</h2>
- * {@code receive()} fires a synchronous {@code Event<InboundMessage>}. Observers must
- * not perform blocking I/O inline — Slack's retry deadline is 3 seconds. The Qhorus
- * bridge (connectors#6) must dispatch asynchronously before writing to the database.
+ * <h2>CDI event is asynchronous</h2>
+ * {@code receive()} fires an asynchronous {@code Event<InboundMessage>} via {@code fireAsync()}.
+ * {@code @ObservesAsync InboundMessage} observers are required. {@code @Observes} (synchronous)
+ * observers will not receive events.
  *
  * <h2>ID validation</h2>
  * Connector ids must be lowercase, URL-safe, no slashes or spaces
@@ -49,7 +49,11 @@ public class InboundConnectorService {
     @Inject
     InboundConnectorService(@All final List<InboundConnector> pullConnectors,
                             final Event<InboundMessage> messageEvent) {
-        this(pullConnectors, messageEvent::fire);
+        this(pullConnectors, msg -> messageEvent.fireAsync(msg)
+                .exceptionally(ex -> {
+                    LOG.severe("Async InboundMessage dispatch failed: " + ex.getMessage());
+                    return null;
+                }));
     }
 
     /** Package-private constructor for unit tests — accepts a recording consumer. */

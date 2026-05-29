@@ -1,28 +1,29 @@
 package io.casehub.connectors.webhook;
 
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.event.ObservesAsync;
 
 import io.casehub.connectors.InboundMessage;
 
-/** Test bean that captures all CDI InboundMessage events for assertion. */
 @ApplicationScoped
 public class InboundMessageCapture {
 
-    private final List<InboundMessage> received = new CopyOnWriteArrayList<>();
+    private final BlockingQueue<InboundMessage> queue = new LinkedBlockingQueue<>();
 
-    public void onMessage(@Observes final InboundMessage message) {
-        received.add(message);
+    public void observe(@ObservesAsync InboundMessage message) {
+        queue.offer(message);
     }
 
-    public List<InboundMessage> received() {
-        return List.copyOf(received);
+    /** Blocks until one message arrives or timeout elapses. Returns null on timeout. */
+    public InboundMessage poll(long timeout, TimeUnit unit) throws InterruptedException {
+        return queue.poll(timeout, unit);
     }
 
     public void clear() {
-        received.clear();
+        queue.clear();
     }
 }

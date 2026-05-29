@@ -1,28 +1,28 @@
 package io.casehub.connectors.email.inbound;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.event.ObservesAsync;
 
 import io.casehub.connectors.InboundMessage;
 
 @ApplicationScoped
 public class InboundMessageCapture {
 
-    private final List<InboundMessage> messages = Collections.synchronizedList(new ArrayList<>());
+    private final BlockingQueue<InboundMessage> queue = new LinkedBlockingQueue<>();
 
-    void observe(@Observes final InboundMessage message) {
-        messages.add(message);
+    public void observe(@ObservesAsync InboundMessage message) {
+        queue.offer(message);
     }
 
-    public List<InboundMessage> messages() {
-        return Collections.unmodifiableList(messages);
+    public InboundMessage poll(long timeout, TimeUnit unit) throws InterruptedException {
+        return queue.poll(timeout, unit);
     }
 
     public void clear() {
-        messages.clear();
+        queue.clear();
     }
 }

@@ -10,10 +10,12 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.casehub.connectors.InboundMessage;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 
@@ -42,7 +44,7 @@ class WebhookRouterTest {
     // ── Slack — POST ──────────────────────────────────────────────────────────
 
     @Test
-    void post_slackValid_returns200AndFiresEvent() {
+    void post_slackValid_returns200AndFiresEvent() throws InterruptedException {
         final String ts = nowTs();
         final String body = slackMessageEvent("U123", "C456", "hello from router test");
         final String sig = slackSig(body, ts, "test-slack-secret");
@@ -55,12 +57,13 @@ class WebhookRouterTest {
             .when().post("/connectors/slack-inbound/webhook")
             .then().statusCode(200);
 
-        assertThat(capture.received()).hasSize(1);
-        assertThat(capture.received().get(0).content()).isEqualTo("hello from router test");
+        InboundMessage msg = capture.poll(2, TimeUnit.SECONDS);
+        assertThat(msg).isNotNull();
+        assertThat(msg.content()).isEqualTo("hello from router test");
     }
 
     @Test
-    void post_slackInvalidSignature_returns200WithNoEvent() {
+    void post_slackInvalidSignature_returns200WithNoEvent() throws InterruptedException {
         given()
             .contentType("application/json")
             .header("X-Slack-Signature", "v0=badhash")
@@ -69,7 +72,8 @@ class WebhookRouterTest {
             .when().post("/connectors/slack-inbound/webhook")
             .then().statusCode(200);  // 200 to suppress retries
 
-        assertThat(capture.received()).isEmpty();
+        InboundMessage msg = capture.poll(200, TimeUnit.MILLISECONDS);
+        assertThat(msg).isNull();
     }
 
     @Test
@@ -124,7 +128,7 @@ class WebhookRouterTest {
     // ── Twilio — form-encoded POST ────────────────────────────────────────────
 
     @Test
-    void post_twilioValidSms_returns200AndFiresEvent() {
+    void post_twilioValidSms_returns200AndFiresEvent() throws InterruptedException {
         final TreeMap<String, String> params = new TreeMap<>();
         params.put("From", "+447700900001");
         params.put("To", "+447700900002");
@@ -143,15 +147,16 @@ class WebhookRouterTest {
             .when().post("/connectors/twilio-sms-inbound/webhook")
             .then().statusCode(200);
 
-        assertThat(capture.received()).hasSize(1);
-        assertThat(capture.received().get(0).externalSenderId()).isEqualTo("+447700900001");
-        assertThat(capture.received().get(0).content()).isEqualTo("test sms");
+        InboundMessage msg = capture.poll(2, TimeUnit.SECONDS);
+        assertThat(msg).isNotNull();
+        assertThat(msg.externalSenderId()).isEqualTo("+447700900001");
+        assertThat(msg.content()).isEqualTo("test sms");
     }
 
     // ── WhatsApp — POST ───────────────────────────────────────────────────────
 
     @Test
-    void post_whatsappValidTextMessage_returns200AndFiresEvent() {
+    void post_whatsappValidTextMessage_returns200AndFiresEvent() throws InterruptedException {
         final String body = """
                 {"entry":[{"changes":[{"value":{"messages":[{"from":"15551234","type":"text","text":{"body":"whatsapp hello"}}],"metadata":{"phone_number_id":"15559999"}}}]}]}
                 """.strip();
@@ -167,20 +172,22 @@ class WebhookRouterTest {
             .when().post("/connectors/whatsapp-inbound/webhook")
             .then().statusCode(200);
 
-        assertThat(capture.received()).hasSize(1);
-        assertThat(capture.received().get(0).externalSenderId()).isEqualTo("15551234");
-        assertThat(capture.received().get(0).content()).isEqualTo("whatsapp hello");
+        InboundMessage msg = capture.poll(2, TimeUnit.SECONDS);
+        assertThat(msg).isNotNull();
+        assertThat(msg.externalSenderId()).isEqualTo("15551234");
+        assertThat(msg.content()).isEqualTo("whatsapp hello");
     }
 
     // ── Teams — GET not supported ─────────────────────────────────────────────
 
     @Test
-    void get_teamsConnector_returns200Ignored() {
+    void get_teamsConnector_returns200Ignored() throws InterruptedException {
         given()
             .when().get("/connectors/teams-inbound/webhook")
             .then().statusCode(200);  // Ignored → 200
 
-        assertThat(capture.received()).isEmpty();
+        InboundMessage msg = capture.poll(200, TimeUnit.MILLISECONDS);
+        assertThat(msg).isNull();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

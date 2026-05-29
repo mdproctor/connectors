@@ -110,12 +110,12 @@ Both types deliver via `InboundConnectorService.receive()` — the single CDI
 
 **Built-in webhook implementations (`webhook` module):**
 
-| ID | Platform | Signature |
-|----|----------|-----------|
-| `slack-inbound` | Slack Events API | HMAC-SHA256; url_verification; replay prevention |
-| `teams-inbound` | Teams Outgoing Webhooks | HMAC-SHA256 with base64-decoded key |
-| `whatsapp-inbound` | WhatsApp Business API | GET challenge + POST HMAC-SHA256 |
-| `twilio-sms-inbound` | Twilio SMS | HMAC-SHA1 over URL + sorted params (Twilio's algorithm) |
+| ID | Platform | Signature | `metadata` keys |
+|----|----------|-----------|-----------------|
+| `slack-inbound` | Slack Events API | HMAC-SHA256; url_verification; replay prevention | `workspace-id` (from `team_id`) |
+| `teams-inbound` | Teams Outgoing Webhooks | HMAC-SHA256 with base64-decoded key | _(none)_ |
+| `whatsapp-inbound` | WhatsApp Business API | GET challenge + POST HMAC-SHA256 | `message-id` (from message `id` field) |
+| `twilio-sms-inbound` | Twilio SMS | HMAC-SHA1 over URL + sorted params (Twilio's algorithm) | `message-sid` (from `MessageSid` param) |
 
 **Security:** All HMAC comparisons use `MessageDigest.isEqual()` (constant-time).
 `Unauthorized` from POST → HTTP 200 (suppress retry storms); from GET → HTTP 403

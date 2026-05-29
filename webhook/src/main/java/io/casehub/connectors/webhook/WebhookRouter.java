@@ -132,8 +132,11 @@ public class WebhookRouter {
                     Response.ok(responseBody).type(contentType).build();
                 case WebhookResult.Ignored() -> Response.ok().build();
                 case WebhookResult.Unauthorized() -> {
-                    final String sourceIp = request.header("x-forwarded-for") != null
-                            ? request.header("x-forwarded-for") : "unknown";
+                    // Sanitize XFF — caller-controlled; strip anything that could corrupt log format
+                    final String rawXff = request.header("x-forwarded-for");
+                    final String sourceIp = (rawXff != null
+                            && rawXff.matches("[\\w.,: \\[\\]/-]{1,200}"))
+                            ? rawXff.split(",")[0].trim() : "unknown";
                     LOG.warning("SECURITY: rejected webhook request."
                             + " connector=" + id
                             + " method=" + request.method()

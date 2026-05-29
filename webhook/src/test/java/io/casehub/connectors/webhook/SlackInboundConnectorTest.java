@@ -207,6 +207,18 @@ class SlackInboundConnectorTest {
     }
 
     @Test
+    void messageEvent_noTeamId_metadataIsEmpty() {
+        // event_callback without team_id → metadata["workspace-id"] absent
+        final String body = """
+                {"type":"event_callback","event":{"type":"message","user":"U1","channel":"C1","text":"hi"}}
+                """.strip();
+        final WebhookResult result = connector.handle(postRequest(body));
+        assertThat(result).isInstanceOf(WebhookResult.Delivered.class);
+        final WebhookResult.Delivered delivered = (WebhookResult.Delivered) result;
+        assertThat(delivered.messages().get(0).metadata()).doesNotContainKey("workspace-id");
+    }
+
+    @Test
     void id_isSlackInbound() {
         assertThat(connector.id()).isEqualTo("slack-inbound");
     }

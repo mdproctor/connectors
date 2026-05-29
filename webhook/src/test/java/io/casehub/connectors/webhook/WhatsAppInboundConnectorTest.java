@@ -137,6 +137,8 @@ class WhatsAppInboundConnectorTest {
         assertThat(result).isInstanceOf(WebhookResult.Delivered.class);
         final WebhookResult.Delivered delivered = (WebhookResult.Delivered) result;
         assertThat(delivered.messages().get(0).content()).isEqualTo("https://example.com/img.jpg");
+        // mediaMessage fixture has no message id — metadata["message-id"] absent
+        assertThat(delivered.messages().get(0).metadata()).doesNotContainKey("message-id");
     }
 
     @Test

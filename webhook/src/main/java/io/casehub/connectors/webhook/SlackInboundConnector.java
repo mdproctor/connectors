@@ -112,12 +112,12 @@ public class SlackInboundConnector extends WebhookInboundConnector {
                 : new WebhookResult.Delivered(messages);
     }
 
-    // Single parse for url_verification — returns challenge value if present, empty otherwise.
+    // Single parse for url_verification — returns challenge value (empty string if field absent).
     private static Optional<String> extractChallenge(final String body) {
         try {
             final JsonObject json = Json.createReader(new StringReader(body)).readObject();
             if ("url_verification".equals(json.getString("type", null))) {
-                return Optional.ofNullable(json.getString("challenge", null));
+                return Optional.of(json.getString("challenge", ""));
             }
         } catch (final Exception ignored) {}
         return Optional.empty();

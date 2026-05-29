@@ -3,7 +3,7 @@
 **Issue:** casehubio/connectors#7  
 **Branch:** issue-7-email-inbound-v1-polish  
 **Date:** 2026-05-29  
-**Rev:** 2 (post-review)
+**Rev:** 3 (post-review-2)
 
 ---
 
@@ -41,7 +41,7 @@ Value type carrying one IMAP account's connection details:
 
 ```java
 public record EmailInboundAccount(
-        String id,                // used as InboundMessage.connectorId
+        String id,                // goes into metadata["account-id"]; NOT connectorId
         String host,
         int port,                 // default 993
         boolean tls,              // default true (IMAPS)
@@ -52,12 +52,11 @@ public record EmailInboundAccount(
 ) {}
 ```
 
-`id` is placed in `InboundMessage.connectorId` (e.g. `"email-inbound"` for the
-default single-account case, `"email-inbound-support"` for a named account).
-`connectorId` is the connector-type discriminator; in the single-account case
-the account id and connector type id are identical. The per-account identity for
-multi-account deployments is also carried in `metadata["account-id"]` so observers
-can always filter by both dimensions independently.
+`id` identifies the account in `metadata["account-id"]`. It does **not** appear in
+`InboundMessage.connectorId` — that field is always `"email-inbound"` (the connector
+type constant from `EmailInboundConnector.id()`), regardless of how many accounts are
+configured. Observers filter by connector type on `connectorId`; they filter by account
+on `metadata["account-id"]`.
 
 ### `EmailInboundAccountProvider` (SPI)
 
@@ -106,6 +105,10 @@ opened and closed per poll cycle. Do not conflate them.
 | `casehub.connectors.email-inbound.folder` | `"INBOX"` | |
 | `casehub.connectors.email-inbound.poll-interval-seconds` | `60` | |
 
+**Account id in `DefaultEmailInboundAccountProvider`:** hardcoded to `"email-inbound"`.
+There is no `casehub.connectors.email-inbound.id` config property. Multi-account
+providers set their own ids programmatically.
+
 No `casehub-platform-api` dependency. Future multi-tenant providers implement
 `EmailInboundAccountProvider` directly.
 
@@ -115,21 +118,21 @@ No `casehub-platform-api` dependency. Future multi-tenant providers implement
 
 | Field | Value |
 |---|---|
-| `connectorId` | `EmailInboundAccount.id()` (e.g. `"email-inbound"`) — connector-type discriminator |
+| `connectorId` | `"email-inbound"` — always the connector type constant; never the account id |
 | `externalSenderId` | `From:` header — `InternetAddress.getAddress()` (address only, not display name) |
-| `externalChannelRef` | First address from `To:` header — the recipient address that received the message |
+| `externalChannelRef` | First `To:` address via `InternetAddress.getAddress()`; falls back to `account.username()` when `To:` is absent or empty |
 | `content` | Plain text part if present; raw HTML if HTML-only; `""` if neither. Recursive extraction (see below). |
 | `receivedAt` | `Message.getReceivedDate()` → `Message.getSentDate()` → `Instant.now()` (fallback chain) |
 | `metadata` | `"message-id"` → RFC 2822 Message-ID; `"subject"` → email subject; `"account-id"` → `EmailInboundAccount.id()` |
 
-`"account-id"` in metadata ensures observers can distinguish accounts even when
-`connectorId` is shared across a single-account deployment.
+`"account-id"` lets observers distinguish accounts in multi-account deployments.
+`connectorId` is always `"email-inbound"` so type-based dispatch never needs prefix matching.
 
 ---
 
 ## Poll Cycle (Per Account)
 
-1. Open `Folder` in READ_WRITE mode (using the shared `Session`; reconnect `Store` if needed)
+1. Open `Store` and `Folder` in READ_WRITE mode (using the shared `Session`; `Store` is opened fresh every poll cycle — no reconnect logic needed)
 2. Search for UNSEEN messages: `folder.search(new FlagTerm(Flags.Flag.SEEN, false))`
 3. For each message:
    a. Parse `From:` → `InternetAddress.getAddress()` → `externalSenderId`
@@ -235,7 +238,8 @@ No dependency on `casehub-platform-api`. No dependency on `quarkus-mailer`.
 ### Unit tests — `EmailInboundConnectorTest` (no Quarkus container)
 
 Uses Greenmail (embedded IMAP+SMTP, no Docker). `InboundMessageSink` is a plain
-capturing lambda.
+capturing lambda. `EmailInboundAccount` constructed with `tls=false` and Greenmail's
+plain IMAP port (default 3143).
 
 | Test | Assertion |
 |---|---|
@@ -253,9 +257,15 @@ capturing lambda.
 
 ### Integration test — `EmailInboundConnectorQuarkusTest`
 
-`@QuarkusTest` with Greenmail started via `@BeforeAll`. IMAP host/port fed via
-`@TestProfile` MP Config overrides (standard `casehub.connectors.email-inbound.*`
-properties).
+`@QuarkusTest` with Greenmail started via `@BeforeAll`. Config fed via `@TestProfile`
+MP Config overrides — must include:
+```
+casehub.connectors.email-inbound.host=localhost
+casehub.connectors.email-inbound.port=<greenmail-imap-port>
+casehub.connectors.email-inbound.tls=false
+casehub.connectors.email-inbound.username=test@example.com
+casehub.connectors.email-inbound.password=password
+```
 
 One happy-path test: send plain-text email to Greenmail → poll fires → CDI event
 received by test observer → assert `InboundMessage` fields correct.

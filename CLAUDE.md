@@ -102,15 +102,15 @@ type: java
 
 ## What This Project Is
 
-Lightweight outbound message connector library for the casehubio platform. Provides a `Connector` CDI SPI with built-in implementations for Slack, Teams, Twilio SMS, WhatsApp, and email.
+Outbound and inbound message connector library for the casehubio platform. Provides a `Connector` CDI SPI (outbound) and `InboundConnector`/`WebhookInboundConnector` SPIs (inbound) with built-in implementations for Slack, Teams, Twilio SMS, WhatsApp, and email.
 
-**This is the canonical outbound notification infrastructure for the platform.** Any casehubio repo that needs to send outbound messages must use this SPI, not implement its own connector.
+**This is the canonical connector infrastructure for the platform.** Any casehubio repo that needs to send outbound messages or receive inbound webhook messages must use these SPIs, not implement its own connector.
 
 ---
 
 ## Key Rule
 
-Do not add business logic, orchestration, or domain knowledge here. This library is pure delivery infrastructure — it takes a message and sends it. Callers decide when, what, and to whom.
+Do not add business logic, orchestration, or domain knowledge here. This library is pure delivery infrastructure — it sends outbound messages and receives inbound ones, firing a CDI event. Callers decide when, what, and to whom; observers decide what to do with received messages.
 
 ---
 
@@ -149,6 +149,11 @@ CI must use `server-id: github` + `GITHUB_TOKEN` in `actions/setup-java`.
 
 **Cross-project SNAPSHOT versions:** All casehubio artifacts are `0.2-SNAPSHOT` resolved from GitHub Packages.
 
+
+## Work Tracking
+
+Issue tracking: enabled
+GitHub repo: casehubio/connectors
 
 ## Development Workflow
 

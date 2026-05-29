@@ -23,6 +23,7 @@ Zero heavy dependencies — HTTP-based connectors use java.net.http only.</descr
 
   <modules>
     <module>core</module>
+    <module>webhook</module>
     <module>email</module>
   </modules>
 

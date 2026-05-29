@@ -125,6 +125,7 @@ class TwilioSmsInboundConnectorTest {
         assertThat(delivered.messages().get(0).externalChannelRef()).isEqualTo("+447700900002");
         assertThat(delivered.messages().get(0).content()).isEqualTo("test message");
         assertThat(delivered.messages().get(0).connectorId()).isEqualTo("twilio-sms-inbound");
+        assertThat(delivered.messages().get(0).metadata()).containsEntry("message-sid", "SM123456");
     }
 
     @Test

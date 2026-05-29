@@ -53,7 +53,7 @@ class WhatsAppInboundConnectorTest {
 
     private static String textMessage(final String from, final String to, final String text) {
         return """
-                {"entry":[{"changes":[{"value":{"messages":[{"from":"%s","type":"text","text":{"body":"%s"}}],"metadata":{"phone_number_id":"%s"}}}]}]}
+                {"entry":[{"changes":[{"value":{"messages":[{"id":"wamid.TEST123","from":"%s","type":"text","text":{"body":"%s"}}],"metadata":{"phone_number_id":"%s"}}}]}]}
                 """.formatted(from, text, to).strip();
     }
 
@@ -114,6 +114,7 @@ class WhatsAppInboundConnectorTest {
         assertThat(delivered.messages().get(0).externalSenderId()).isEqualTo("15551234");
         assertThat(delivered.messages().get(0).content()).isEqualTo("hello");
         assertThat(delivered.messages().get(0).connectorId()).isEqualTo("whatsapp-inbound");
+        assertThat(delivered.messages().get(0).metadata()).containsEntry("message-id", "wamid.TEST123");
     }
 
     @Test

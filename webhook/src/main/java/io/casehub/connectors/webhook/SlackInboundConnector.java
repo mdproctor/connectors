@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.logging.Logger;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -66,8 +68,14 @@ public class SlackInboundConnector extends WebhookInboundConnector {
 
     private WebhookResult doHandle(final WebhookRequest request) {
         // 1. URL verification — must be first, before blank-secret guard
-        if (request.method() == HttpMethod.POST && isUrlVerification(request.body())) {
-            return buildChallenge(request.body());
+        if (request.method() == HttpMethod.POST) {
+            final Optional<String> challenge = extractChallenge(request.body());
+            if (challenge.isPresent()) {
+                final String response = Json.createObjectBuilder()
+                        .add("challenge", challenge.get())
+                        .build().toString();
+                return new WebhookResult.Challenged(response, "application/json");
+            }
         }
 
         // 2. Blank-secret guard
@@ -104,28 +112,15 @@ public class SlackInboundConnector extends WebhookInboundConnector {
                 : new WebhookResult.Delivered(messages);
     }
 
-    private boolean isUrlVerification(final String body) {
+    // Single parse for url_verification — returns challenge value if present, empty otherwise.
+    private static Optional<String> extractChallenge(final String body) {
         try {
             final JsonObject json = Json.createReader(new StringReader(body)).readObject();
-            return "url_verification".equals(json.getString("type", null));
-        } catch (final Exception e) {
-            return false;
-        }
-    }
-
-    private WebhookResult buildChallenge(final String body) {
-        try {
-            final JsonObject json = Json.createReader(new StringReader(body)).readObject();
-            final String challenge = json.getString("challenge", "");
-            // Use JSON builder — never reflect raw input into JSON string literals
-            final String response = Json.createObjectBuilder()
-                    .add("challenge", challenge)
-                    .build()
-                    .toString();
-            return new WebhookResult.Challenged(response, "application/json");
-        } catch (final Exception e) {
-            return new WebhookResult.Ignored();
-        }
+            if ("url_verification".equals(json.getString("type", null))) {
+                return Optional.ofNullable(json.getString("challenge", null));
+            }
+        } catch (final Exception ignored) {}
+        return Optional.empty();
     }
 
     private boolean verifySignature(final String body, final String timestamp,
@@ -157,7 +152,10 @@ public class SlackInboundConnector extends WebhookInboundConnector {
 
             if (user == null || channel == null) return messages;
 
-            messages.add(new InboundMessage(ID, user, channel, text, Instant.now()));
+            final String teamId = json.getString("team_id", null);
+            final Map<String, String> meta = teamId != null
+                    ? Map.of("workspace-id", teamId) : Map.of();
+            messages.add(new InboundMessage(ID, user, channel, text, Instant.now(), meta));
         } catch (final Exception e) {
             LOG.warning("slack-inbound: failed to parse event body: " + e.getMessage());
         }

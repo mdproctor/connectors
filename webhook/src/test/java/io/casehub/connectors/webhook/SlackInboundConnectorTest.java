@@ -55,7 +55,7 @@ class SlackInboundConnectorTest {
     private static String messageEvent(final String user, final String channel,
                                        final String text) {
         return """
-                {"type":"event_callback","event":{"type":"message","user":"%s","channel":"%s","text":"%s"}}
+                {"type":"event_callback","team_id":"T789","event":{"type":"message","user":"%s","channel":"%s","text":"%s"}}
                 """.formatted(user, channel, text).strip();
     }
 
@@ -191,6 +191,7 @@ class SlackInboundConnectorTest {
         assertThat(delivered.messages().get(0).externalChannelRef()).isEqualTo("C456");
         assertThat(delivered.messages().get(0).content()).isEqualTo("hello world");
         assertThat(delivered.messages().get(0).connectorId()).isEqualTo("slack-inbound");
+        assertThat(delivered.messages().get(0).metadata()).containsEntry("workspace-id", "T789");
     }
 
     @Test

@@ -89,8 +89,11 @@ public class TwilioSmsInboundConnector extends WebhookInboundConnector {
             return new WebhookResult.Ignored();
         }
 
+        final String messageSid = params.get("MessageSid");
+        final Map<String, String> meta = messageSid != null
+                ? Map.of("message-sid", messageSid) : Map.of();
         return new WebhookResult.Delivered(
-                List.of(new InboundMessage(ID, from, to, body, Instant.now())));
+                List.of(new InboundMessage(ID, from, to, body, Instant.now(), meta)));
     }
 
     private boolean verifySignature(final String url, final Map<String, String> params,

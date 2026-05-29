@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -149,7 +150,10 @@ public class WhatsAppInboundConnector extends WebhookInboundConnector {
             final String from = msg.getString("from", "unknown");
             final String type = msg.getString("type", "text");
             final String content = extractContent(msg, type);
-            out.add(new InboundMessage(ID, from, phoneNumberId, content, Instant.now()));
+            final String msgId = msg.getString("id", null);
+            final Map<String, String> meta = msgId != null
+                    ? Map.of("message-id", msgId) : Map.of();
+            out.add(new InboundMessage(ID, from, phoneNumberId, content, Instant.now(), meta));
         }
     }
 

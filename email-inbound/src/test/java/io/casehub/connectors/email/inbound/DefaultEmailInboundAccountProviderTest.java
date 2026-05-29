@@ -33,7 +33,7 @@ class DefaultEmailInboundAccountProviderTest {
         assertThat(accounts).hasSize(1);
 
         final EmailInboundAccount account = accounts.get(0);
-        assertThat(account.id()).isEqualTo("email-inbound");
+        assertThat(account.id()).isEqualTo(EmailInboundConnector.ID);
         assertThat(account.host()).isEqualTo("imap.example.com");
         assertThat(account.port()).isEqualTo(993);
         assertThat(account.tls()).isTrue();

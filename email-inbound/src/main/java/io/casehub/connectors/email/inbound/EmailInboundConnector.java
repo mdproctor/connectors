@@ -67,6 +67,7 @@ public class EmailInboundConnector implements InboundConnector {
 
     @Override
     public void start(final InboundMessageSink sink) {
+        if (!executors.isEmpty()) return; // guard against double-start
         for (final EmailInboundAccount account : provider.accounts()) {
             final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
                 final Thread t = new Thread(r, "email-inbound-" + account.id() + "-poller");
@@ -191,8 +192,8 @@ public class EmailInboundConnector implements InboundConnector {
         return Instant.now();
     }
 
-    private static Map<String, String> buildMetadata(final EmailInboundAccount account,
-                                                     final Message msg) {
+    static Map<String, String> buildMetadata(final EmailInboundAccount account,
+                                              final Message msg) {
         final Map<String, String> meta = new LinkedHashMap<>();
         meta.put("account-id", account.id());
         try {
@@ -210,6 +211,7 @@ public class EmailInboundConnector implements InboundConnector {
 
     private static void closeQuietly(final Folder folder, final Store store) {
         if (folder != null) {
+            // false = do not expunge on close; connector marks SEEN not DELETED
             try { folder.close(false); } catch (final Exception ignored) {}
         }
         if (store != null) {

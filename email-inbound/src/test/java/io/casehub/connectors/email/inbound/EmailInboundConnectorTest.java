@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 import jakarta.mail.Message;
@@ -220,7 +221,7 @@ class EmailInboundConnectorTest {
         msg.setSubject("No from");
         msg.setText("Body");
         msg.setSentDate(Date.from(Instant.now()));
-        deliverViaSMTP(msg);
+        deliverDirect(msg); // bypass SMTP — guarantees no From: header is synthesised
 
         connector.pollAccount(testAccount(), captured::add);
 
@@ -256,5 +257,37 @@ class EmailInboundConnectorTest {
 
         assertThat(captured).hasSize(1);
         assertThat(captured.get(0).metadata()).doesNotContainKey("subject");
+    }
+
+    // ── metadata extraction (direct — Greenmail always adds Message-ID to stored IMAP messages) ──
+
+    @Test
+    void buildMetadata_noMessageIdHeader_keyAbsent() throws Exception {
+        final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
+        msg.setFrom(new InternetAddress("sender@example.com"));
+        msg.setSubject("Has subject, no message-id");
+        msg.setText("Body");
+        // No Message-ID header set — test buildMetadata() directly since IMAP servers always add one
+
+        final Map<String, String> metadata = EmailInboundConnector.buildMetadata(testAccount(), msg);
+
+        assertThat(metadata).containsKey("account-id");
+        assertThat(metadata).doesNotContainKey("message-id");
+        assertThat(metadata).containsEntry("subject", "Has subject, no message-id");
+    }
+
+    @Test
+    void buildMetadata_noSubject_keyAbsent() throws Exception {
+        final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
+        msg.setFrom(new InternetAddress("sender@example.com"));
+        msg.setHeader("Message-ID", "<test@example.com>");
+        msg.setText("Body");
+        // No Subject header set
+
+        final Map<String, String> metadata = EmailInboundConnector.buildMetadata(testAccount(), msg);
+
+        assertThat(metadata).containsEntry("account-id", EmailInboundConnector.ID);
+        assertThat(metadata).containsEntry("message-id", "<test@example.com>");
+        assertThat(metadata).doesNotContainKey("subject");
     }
 }

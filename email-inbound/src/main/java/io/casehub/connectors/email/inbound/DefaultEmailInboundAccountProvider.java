@@ -58,6 +58,6 @@ public class DefaultEmailInboundAccountProvider implements EmailInboundAccountPr
             return List.of();
         }
         return List.of(new EmailInboundAccount(
-                "email-inbound", host, port, tls, username, password, folder, pollIntervalSeconds));
+                EmailInboundConnector.ID, host, port, tls, username, password, folder, pollIntervalSeconds));
     }
 }

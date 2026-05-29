@@ -41,11 +41,12 @@ and must not block the CDI fire for longer than Slack's 3-second retry deadline.
 | `core` | `casehub-connectors-core` | Outbound SPI + Slack, Teams, Twilio SMS, WhatsApp; inbound SPIs + `InboundConnectorService` |
 | `webhook` | `casehub-connectors-webhook` | Webhook inbound connectors (Slack, Teams, WhatsApp, Twilio SMS) + `WebhookRouter` JAX-RS |
 | `email` | `casehub-connectors-email` | Email outbound via `quarkus-mailer` |
+| `email-inbound` | `casehub-connectors-email-inbound` | Email inbound via IMAP polling (`EmailInboundConnector`) + `EmailInboundAccountProvider` SPI |
 
-`email` is a separate module because `quarkus-mailer` is an optional dependency —
-deployments that don't need email should not pull it in. `webhook` is separate for the
-same reason: `quarkus-rest` adds non-trivial weight and is unnecessary for outbound-only
-deployments.
+Each module carries only the dependencies it needs. `email` and `email-inbound` are
+separate because `quarkus-mailer` (SMTP) and `angus-mail` (IMAP) have no shared
+infrastructure — bundling them would force each dependency on users who need only one.
+`webhook` is separate because `quarkus-rest` is unnecessary for outbound-only deployments.
 
 ---
 
@@ -107,7 +108,7 @@ forces exhaustive handling in the router.
 Both types deliver via `InboundConnectorService.receive()` — the single CDI
 `Event<InboundMessage>` bus.
 
-**Built-in webhook implementations:**
+**Built-in webhook implementations (`webhook` module):**
 
 | ID | Platform | Signature |
 |----|----------|-----------|
@@ -119,6 +120,18 @@ Both types deliver via `InboundConnectorService.receive()` — the single CDI
 **Security:** All HMAC comparisons use `MessageDigest.isEqual()` (constant-time).
 `Unauthorized` from POST → HTTP 200 (suppress retry storms); from GET → HTTP 403
 (admin console setup failure must be visible).
+
+**Built-in pull implementations (`email-inbound` module):**
+
+| ID | Transport | Discovery |
+|----|-----------|-----------|
+| `email-inbound` | IMAP polling via `EmailInboundAccountProvider` SPI | `@DefaultBean` reads from MP Config; custom providers supply multi-account or DB-backed configs |
+
+`EmailInboundConnector` polls each configured IMAP account on a dedicated single-threaded
+daemon executor. `connectorId` is always `"email-inbound"` (type discriminator); per-account
+identity is in `InboundMessage.metadata["account-id"]`. Delivery is at-least-once — the SEEN
+flag is set per-message in a `finally` block, but a JVM shutdown mid-flag can cause redelivery.
+Observers must be idempotent.
 
 ---
 
@@ -165,12 +178,12 @@ public record InboundMessage(
 
 | Field | Semantics |
 |-------|-----------|
-| `connectorId` | Source connector id (e.g. `"slack-inbound"`) — observers filter on this |
-| `externalSenderId` | Who sent it — Slack user ID, E.164 phone number, email address |
-| `externalChannelRef` | Where it came from — Slack channel ID, WhatsApp destination number, etc. |
-| `content` | Message text. **Text-only in v1** — media messages yield `content` = media URL or empty string |
-| `receivedAt` | `Instant.now()` at parse time in the connector |
-| `metadata` | Connector-specific extras (Slack workspace ID, Twilio message SID, etc.) |
+| `connectorId` | Source connector type id (e.g. `"slack-inbound"`, `"email-inbound"`) — observers filter on this; never an account-level id |
+| `externalSenderId` | Who sent it — Slack user ID, E.164 phone number, email address (`InternetAddress.getAddress()`); `""` if absent/unparseable |
+| `externalChannelRef` | Where it came from — Slack channel ID, WhatsApp destination number, email recipient address; falls back to account username for email when `To:` is absent |
+| `content` | Message text. **Text-only in v1** — media messages yield `content` = media URL or empty string; HTML-only emails yield raw HTML |
+| `receivedAt` | Server-assigned arrival time: `getReceivedDate()` → `getSentDate()` → `Instant.now()` (fallback chain) |
+| `metadata` | Connector-specific extras. Keys are present only when the underlying header/field exists. `"account-id"` is always present for multi-account connectors (e.g. email inbound). |
 
 ---
 
@@ -211,6 +224,22 @@ If `api-token` is blank, `send()` logs and no-ops (same pattern as Twilio).
 
 Set `quarkus.mailer.mock=true` (the default test-profile value) to intercept
 emails in tests without a real SMTP server.
+
+**Email inbound (`email-inbound` module):**
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `casehub.connectors.email-inbound.host` | `""` | IMAP server host. Blank → connector is inactive (no polling threads started) |
+| `casehub.connectors.email-inbound.port` | `993` | IMAP port |
+| `casehub.connectors.email-inbound.tls` | `true` | Use implicit SSL/TLS (IMAPS) |
+| `casehub.connectors.email-inbound.username` | `""` | IMAP username |
+| `casehub.connectors.email-inbound.password` | `""` | IMAP password |
+| `casehub.connectors.email-inbound.folder` | `"INBOX"` | Mailbox folder to poll |
+| `casehub.connectors.email-inbound.poll-interval-seconds` | `60` | Seconds between polls |
+
+For multi-account deployments, implement `EmailInboundAccountProvider` as an
+`@ApplicationScoped` CDI bean (without `@DefaultBean`) to supply multiple accounts
+programmatically.
 
 ---
 

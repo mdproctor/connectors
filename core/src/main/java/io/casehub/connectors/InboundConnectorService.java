@@ -51,7 +51,7 @@ public class InboundConnectorService {
                             final Event<InboundMessage> messageEvent) {
         this(pullConnectors, msg -> messageEvent.fireAsync(msg)
                 .exceptionally(ex -> {
-                    LOG.severe("Async InboundMessage dispatch failed: " + ex.getMessage());
+                    LOG.log(java.util.logging.Level.SEVERE, "Async InboundMessage dispatch failed", ex);
                     return null;
                 }));
     }

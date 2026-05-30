@@ -74,10 +74,11 @@ public class EmailInboundConnector implements InboundConnector {
                 t.setDaemon(true);
                 return t;
             });
+            // Currently drives the poll interval; will become a reconnect backoff cap in the IDLE rewrite (Task 2)
             executor.scheduleWithFixedDelay(
                     () -> pollAccount(account, sink),
                     0L,
-                    account.pollIntervalSeconds(),
+                    account.reconnectDelaySeconds(),
                     TimeUnit.SECONDS);
             executors.add(executor);
         }

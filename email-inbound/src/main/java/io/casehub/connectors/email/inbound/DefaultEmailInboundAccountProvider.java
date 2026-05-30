@@ -35,21 +35,21 @@ public class DefaultEmailInboundAccountProvider implements EmailInboundAccountPr
     @ConfigProperty(name = "casehub.connectors.email-inbound.folder", defaultValue = "INBOX")
     String folder;
 
-    @ConfigProperty(name = "casehub.connectors.email-inbound.poll-interval-seconds", defaultValue = "60")
-    int pollIntervalSeconds;
+    @ConfigProperty(name = "casehub.connectors.email-inbound.reconnect-delay-seconds", defaultValue = "60")
+    int reconnectDelaySeconds;
 
     DefaultEmailInboundAccountProvider() {}
 
     DefaultEmailInboundAccountProvider(final String host, final int port, final boolean tls,
                                        final String username, final String password,
-                                       final String folder, final int pollIntervalSeconds) {
+                                       final String folder, final int reconnectDelaySeconds) {
         this.host = host;
         this.port = port;
         this.tls = tls;
         this.username = username;
         this.password = password;
         this.folder = folder;
-        this.pollIntervalSeconds = pollIntervalSeconds;
+        this.reconnectDelaySeconds = reconnectDelaySeconds;
     }
 
     @Override
@@ -58,6 +58,7 @@ public class DefaultEmailInboundAccountProvider implements EmailInboundAccountPr
             return List.of();
         }
         return List.of(new EmailInboundAccount(
-                EmailInboundConnector.ID, host, port, tls, username, password, folder, pollIntervalSeconds));
+                EmailInboundConnector.ID, host, port, tls, username, password,
+                folder, reconnectDelaySeconds));
     }
 }

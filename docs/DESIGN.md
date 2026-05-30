@@ -237,7 +237,7 @@ emails in tests without a real SMTP server.
 | `casehub.connectors.email-inbound.username` | `""` | IMAP username |
 | `casehub.connectors.email-inbound.password` | `""` | IMAP password |
 | `casehub.connectors.email-inbound.folder` | `"INBOX"` | Mailbox folder to poll |
-| `casehub.connectors.email-inbound.poll-interval-seconds` | `60` | Seconds between polls |
+| `casehub.connectors.email-inbound.reconnect-delay-seconds` | `60` | Exponential backoff cap (seconds) for IMAP IDLE reconnects |
 
 For multi-account deployments, implement `EmailInboundAccountProvider` as an
 `@ApplicationScoped` CDI bean (without `@DefaultBean`) to supply multiple accounts

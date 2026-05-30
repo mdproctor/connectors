@@ -40,7 +40,7 @@ class DefaultEmailInboundAccountProviderTest {
         assertThat(account.username()).isEqualTo("user@example.com");
         assertThat(account.password()).isEqualTo("secret");
         assertThat(account.folder()).isEqualTo("INBOX");
-        assertThat(account.pollIntervalSeconds()).isEqualTo(60);
+        assertThat(account.reconnectDelaySeconds()).isEqualTo(60);
     }
 
     @Test
@@ -50,6 +50,6 @@ class DefaultEmailInboundAccountProviderTest {
                         "imap.example.com", 143, false, "user", "pass", "Support", 30);
         assertThat(provider.accounts().get(0).folder()).isEqualTo("Support");
         assertThat(provider.accounts().get(0).tls()).isFalse();
-        assertThat(provider.accounts().get(0).pollIntervalSeconds()).isEqualTo(30);
+        assertThat(provider.accounts().get(0).reconnectDelaySeconds()).isEqualTo(30);
     }
 }

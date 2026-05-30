@@ -24,7 +24,7 @@ public class GreenMailResource implements QuarkusTestResourceLifecycleManager {
                 "casehub.connectors.email-inbound.tls", "false",
                 "casehub.connectors.email-inbound.username", "inbox@example.com",
                 "casehub.connectors.email-inbound.password", "password",
-                "casehub.connectors.email-inbound.poll-interval-seconds", "1");
+                "casehub.connectors.email-inbound.reconnect-delay-seconds", "1");
     }
 
     @Override

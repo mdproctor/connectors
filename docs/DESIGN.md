@@ -106,7 +106,9 @@ Does **not** implement `InboundConnector`. No lifecycle methods — the JAX-RS
 forces exhaustive handling in the router.
 
 Both types deliver via `InboundConnectorService.receive()` — the single CDI
-`Event<InboundMessage>` bus.
+`Event<InboundMessage>` bus. Events are fired via `Event.fireAsync()` (not `fire()`);
+observers **must** use `@ObservesAsync InboundMessage`. Synchronous `@Observes` observers
+will not receive events.
 
 **Built-in webhook implementations (`webhook` module):**
 

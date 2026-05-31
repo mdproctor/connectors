@@ -8,9 +8,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -19,30 +19,38 @@ import jakarta.inject.Inject;
 import jakarta.mail.Address;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
+import jakarta.mail.FolderClosedException;
 import jakarta.mail.Message;
 import jakarta.mail.Session;
 import jakarta.mail.Store;
+import jakarta.mail.StoreClosedException;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.search.FlagTerm;
+
+import org.eclipse.angus.mail.imap.IMAPFolder;
 
 import io.casehub.connectors.InboundConnector;
 import io.casehub.connectors.InboundMessage;
 import io.casehub.connectors.InboundMessageSink;
 
 /**
- * Pull-based inbound connector for IMAP mailboxes.
+ * Pull-based inbound connector for IMAP mailboxes using IMAP IDLE (RFC 2177).
  *
- * <p>Polls every configured account on a per-account {@link ScheduledExecutorService}
- * (single-threaded, daemon). Each poll cycle opens a fresh {@link Session} and
- * {@link Store} — no reconnect logic, no persistent connection.
+ * <p>One virtual thread per account keeps a persistent IMAP connection and waits
+ * for server push notifications. When the server notifies, all UNSEEN messages are
+ * delivered to the sink and marked SEEN.
  *
  * <p>{@code connectorId} is always {@value #ID}. Per-account identity is in
  * {@code InboundMessage.metadata["account-id"]}.
  *
  * <h2>Delivery guarantee</h2>
  * At-least-once. If shutdown interrupts between {@code sink.receive()} and the
- * SEEN flag write, the message will be redelivered on next startup. Observers must
- * be idempotent.
+ * SEEN flag write, the message redelivers on next startup. Observers must be idempotent.
+ *
+ * <h2>Reconnection</h2>
+ * Exponential backoff capped at {@code reconnectDelaySeconds}. Escalates to SEVERE
+ * after 5+ consecutive failures. {@code FolderClosedException}/{@code StoreClosedException}
+ * reconnect immediately at INFO — covers normal server-side IDLE timeouts.
  */
 @ApplicationScoped
 public class EmailInboundConnector implements InboundConnector {
@@ -52,8 +60,9 @@ public class EmailInboundConnector implements InboundConnector {
     private static final Logger LOG = Logger.getLogger(EmailInboundConnector.class.getName());
 
     private final EmailInboundAccountProvider provider;
-    // Initialised at construction — always safe to iterate in stop() even if start() never ran
-    private final List<ScheduledExecutorService> executors = new ArrayList<>();
+    private final List<Store> openStores = new CopyOnWriteArrayList<>();
+    private volatile boolean stopping = false;
+    private ExecutorService executor;
 
     @Inject
     public EmailInboundConnector(final EmailInboundAccountProvider provider) {
@@ -67,43 +76,90 @@ public class EmailInboundConnector implements InboundConnector {
 
     @Override
     public void start(final InboundMessageSink sink) {
-        if (!executors.isEmpty()) return; // guard against double-start
+        if (executor != null) return; // double-start guard
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         for (final EmailInboundAccount account : provider.accounts()) {
-            final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
-                final Thread t = new Thread(r, "email-inbound-" + account.id() + "-poller");
-                t.setDaemon(true);
-                return t;
-            });
-            // Currently drives the poll interval; will become a reconnect backoff cap in the IDLE rewrite (Task 2)
-            executor.scheduleWithFixedDelay(
-                    () -> pollAccount(account, sink),
-                    0L,
-                    account.reconnectDelaySeconds(),
-                    TimeUnit.SECONDS);
-            executors.add(executor);
+            executor.submit(() -> idleLoop(account, sink));
         }
     }
 
     @Override
     public void stop() {
-        executors.forEach(ScheduledExecutorService::shutdownNow);
+        stopping = true;
+        new ArrayList<>(openStores).forEach(store -> {
+            try { store.close(); } catch (final Exception ignored) {}
+        });
+        if (executor != null) {
+            executor.shutdownNow();
+        }
     }
 
-    // Package-private — tests call this directly to avoid executor scheduling complexity.
-    void pollAccount(final EmailInboundAccount account, final InboundMessageSink sink) {
+    private void idleLoop(final EmailInboundAccount account, final InboundMessageSink sink) {
+        int backoffSeconds = 1;
+        int consecutiveFailures = 0;
+
+        while (!stopping) {
+            Store store = null;
+            IMAPFolder folder = null;
+            try {
+                store = connect(account);
+                openStores.add(store);
+                if (stopping) {
+                    // Race guard: stop() may have snapshotted openStores before we added.
+                    // Do not remove here — finally handles openStores.remove(store) and closeQuietly.
+                    return;
+                }
+                folder = (IMAPFolder) store.getFolder(account.folder());
+                folder.open(Folder.READ_WRITE);
+                backoffSeconds = 1;
+                consecutiveFailures = 0;
+                LOG.info("email-inbound: IDLE connected for account " + account.id());
+
+                // Catch messages already in the mailbox before IDLE started
+                processUnseen(folder, account, sink);
+
+                while (!stopping) {
+                    folder.idle(true); // blocks until one server notification, then returns
+                    processUnseen(folder, account, sink);
+                }
+
+            } catch (final FolderClosedException | StoreClosedException e) {
+                // Normal server-side IDLE timeout or server-closed connection.
+                // consecutive quick disconnects will eventually fail to reconnect and hit the backoff path
+                if (!stopping) {
+                    LOG.info("email-inbound: IDLE session ended for account "
+                            + account.id() + ", reconnecting");
+                }
+            } catch (final Exception e) {
+                if (!stopping) {
+                    consecutiveFailures++;
+                    final Level level = consecutiveFailures >= 5 ? Level.SEVERE : Level.WARNING;
+                    LOG.log(level, "email-inbound: connection failed for account "
+                            + account.id() + " (attempt " + consecutiveFailures + "): "
+                            + e.getMessage());
+                    sleepQuietly(backoffSeconds * 1000L);
+                    backoffSeconds = Math.min(backoffSeconds * 2, account.reconnectDelaySeconds());
+                }
+            } finally {
+                openStores.remove(store);
+                closeQuietly(folder, store);
+            }
+        }
+    }
+
+    private Store connect(final EmailInboundAccount account) throws Exception {
         final Properties props = buildProperties(account);
         final Session session = Session.getInstance(props);
-        Store store = null;
-        Folder folder = null;
-        try {
-            store = session.getStore();
-            store.connect(account.host(), account.username(), account.password());
-            folder = store.getFolder(account.folder());
-            folder.open(Folder.READ_WRITE);
+        final Store store = session.getStore();
+        store.connect(account.host(), account.username(), account.password());
+        return store;
+    }
 
+    private void processUnseen(final IMAPFolder folder, final EmailInboundAccount account,
+                                final InboundMessageSink sink) {
+        try {
             final Message[] unseen = folder.search(
                     new FlagTerm(new Flags(Flags.Flag.SEEN), false));
-
             for (final Message msg : unseen) {
                 final InboundMessage inbound = toInboundMessage(account, msg);
                 try {
@@ -121,10 +177,8 @@ public class EmailInboundConnector implements InboundConnector {
                 }
             }
         } catch (final Exception e) {
-            LOG.log(Level.WARNING, "email-inbound: poll failed for account "
-                    + account.id() + ": " + e.getMessage(), e);
-        } finally {
-            closeQuietly(folder, store);
+            LOG.log(Level.WARNING, "email-inbound: processUnseen failed for account "
+                    + account.id(), e);
         }
     }
 
@@ -135,10 +189,14 @@ public class EmailInboundConnector implements InboundConnector {
             props.put("mail.imaps.host", account.host());
             props.put("mail.imaps.port", String.valueOf(account.port()));
             props.put("mail.imaps.ssl.enable", "true");
+            props.put("mail.imaps.timeout", "300000");
+            props.put("mail.imaps.connectiontimeout", "30000");
         } else {
             props.put("mail.store.protocol", "imap");
             props.put("mail.imap.host", account.host());
             props.put("mail.imap.port", String.valueOf(account.port()));
+            props.put("mail.imap.timeout", "300000");
+            props.put("mail.imap.connectiontimeout", "30000");
         }
         return props;
     }
@@ -152,7 +210,7 @@ public class EmailInboundConnector implements InboundConnector {
                     extractChannelRef(msg, account),
                     ContentExtractor.extractContent(msg),
                     resolveReceivedAt(msg),
-                    buildMetadata(account, msg));
+                    buildMetadata(account, msg, 0));
         } catch (final Exception e) {
             LOG.log(Level.WARNING, "email-inbound: message parse failed", e);
             return new InboundMessage(ID, "", account.username(), "",
@@ -194,7 +252,8 @@ public class EmailInboundConnector implements InboundConnector {
     }
 
     static Map<String, String> buildMetadata(final EmailInboundAccount account,
-                                              final Message msg) {
+                                              final Message msg,
+                                              final int attachmentCount) {
         final Map<String, String> meta = new LinkedHashMap<>();
         meta.put("account-id", account.id());
         try {
@@ -207,12 +266,20 @@ public class EmailInboundConnector implements InboundConnector {
                 meta.put("subject", subject);
             }
         } catch (final Exception ignored) {}
+        meta.put("attachment-count", String.valueOf(attachmentCount));
         return Collections.unmodifiableMap(meta);
+    }
+
+    private static void sleepQuietly(final long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void closeQuietly(final Folder folder, final Store store) {
         if (folder != null) {
-            // false = do not expunge on close; connector marks SEEN not DELETED
             try { folder.close(false); } catch (final Exception ignored) {}
         }
         if (store != null) {

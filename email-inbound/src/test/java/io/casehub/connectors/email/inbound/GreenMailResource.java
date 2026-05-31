@@ -23,8 +23,8 @@ public class GreenMailResource implements QuarkusTestResourceLifecycleManager {
                         String.valueOf(INSTANCE.getImap().getPort()),
                 "casehub.connectors.email-inbound.tls", "false",
                 "casehub.connectors.email-inbound.username", "inbox@example.com",
-                "casehub.connectors.email-inbound.password", "password",
-                "casehub.connectors.email-inbound.reconnect-delay-seconds", "1");
+                "casehub.connectors.email-inbound.password", "password");
+        // reconnect-delay-seconds defaults to 60 — irrelevant for IDLE delivery speed
     }
 
     @Override

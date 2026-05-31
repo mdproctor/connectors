@@ -1,8 +1,12 @@
 package io.casehub.connectors.email.inbound;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -65,8 +69,48 @@ final class ContentExtractor {
         final String baseType = ct.contains(";")
                 ? ct.substring(0, ct.indexOf(';')).trim().toLowerCase()
                 : ct.trim().toLowerCase();
-        final byte[] bytes = part.getInputStream().readAllBytes();
+
+        // Jakarta Activation's DataContentHandler (DCH) has no registered handler for
+        // many MIME types (application/pdf, image/png, text/calendar, etc.) in a plain
+        // Jakarta Mail environment, causing getInputStream() to throw
+        // UnsupportedDataTypeException when content was constructed in-memory.
+        //
+        // Real IMAP messages arrive transfer-encoded (base64); angus-mail decodes them
+        // before the DataHandler sees them, so getInputStream() works correctly there.
+        //
+        // Strategy: call getContent() first — it returns the raw Java object that the
+        // part stores without going through the DCH stream path:
+        //   byte[]     — binary content set via setContent(byte[], mimeType)
+        //   InputStream — transfer-decoded stream from a real IMAP message
+        //   String     — text content set via setContent(String, mimeType)
+        //   other      — fall back to getInputStream() (real IMAP, handler available)
+        final byte[] bytes;
+        final Object raw = part.getContent();
+        if (raw instanceof byte[] directBytes) {
+            bytes = directBytes;
+        } else if (raw instanceof InputStream is) {
+            bytes = is.readAllBytes();
+        } else if (raw instanceof String s) {
+            // Text attachments (text/calendar, text/csv, etc.) stored as String in-memory.
+            final String charset = extractCharset(ct);
+            bytes = s.getBytes(Charset.forName(charset));
+        } else {
+            // Real IMAP decoded content with an available DCH.
+            bytes = part.getInputStream().readAllBytes();
+        }
         return new Attachment(filename, baseType, bytes);
+    }
+
+    private static final Pattern CHARSET_PARAM =
+            Pattern.compile("(?i)charset\\s*=\\s*([\\w-]+)");
+
+    /** Extract charset from a Content-Type header value; default UTF-8. */
+    private static String extractCharset(final String contentType) {
+        if (contentType != null) {
+            final Matcher m = CHARSET_PARAM.matcher(contentType);
+            if (m.find()) return m.group(1);
+        }
+        return "UTF-8";
     }
 
     private static final class Accumulator {

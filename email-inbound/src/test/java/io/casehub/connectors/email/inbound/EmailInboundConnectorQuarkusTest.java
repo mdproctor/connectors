@@ -57,7 +57,7 @@ class EmailInboundConnectorQuarkusTest {
             transport.sendMessage(msg, msg.getAllRecipients());
         }
 
-        // reconnect-delay-seconds=1 — wait up to 2s for async CDI event delivery
+        // IDLE delivers near-immediately on message arrival; 2s is ample headroom for CDI async dispatch
         final InboundMessage delivered = capture.poll(2, TimeUnit.SECONDS);
         assertThat(delivered).isNotNull();
         assertThat(delivered.connectorId()).isEqualTo("email-inbound");

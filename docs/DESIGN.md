@@ -41,7 +41,7 @@ and must not block the CDI fire for longer than Slack's 3-second retry deadline.
 | `core` | `casehub-connectors-core` | Outbound SPI + Slack, Teams, Twilio SMS, WhatsApp; inbound SPIs + `InboundConnectorService` |
 | `webhook` | `casehub-connectors-webhook` | Webhook inbound connectors (Slack, Teams, WhatsApp, Twilio SMS) + `WebhookRouter` JAX-RS |
 | `email` | `casehub-connectors-email` | Email outbound via `quarkus-mailer` |
-| `email-inbound` | `casehub-connectors-email-inbound` | Email inbound via IMAP polling (`EmailInboundConnector`) + `EmailInboundAccountProvider` SPI |
+| `email-inbound` | `casehub-connectors-email-inbound` | Email inbound via IMAP IDLE (`EmailInboundConnector`) + `EmailInboundAccountProvider` SPI |
 
 Each module carries only the dependencies it needs. `email` and `email-inbound` are
 separate because `quarkus-mailer` (SMTP) and `angus-mail` (IMAP) have no shared
@@ -75,8 +75,10 @@ It will be discovered automatically alongside the built-in implementations.
 ## Inbound SPI
 
 Two distinct types handle inbound transports — not a unified interface — because their
-lifecycle semantics differ. Pull-based connectors (IMAP, polling) have an active
-lifecycle; webhook-based connectors are passive (their lifecycle is the JAX-RS endpoint).
+lifecycle semantics differ. Pull-based connectors (IMAP IDLE) have an active lifecycle;
+`InboundConnectorService` calls `start(InboundMessageSink)` at startup and the connector
+runs an IDLE loop per account on virtual threads. Webhook-based connectors are passive
+(their lifecycle is the JAX-RS endpoint).
 
 ### `InboundConnector` — pull-based transports
 
@@ -127,10 +129,10 @@ will not receive events.
 
 | ID | Transport | Discovery |
 |----|-----------|-----------|
-| `email-inbound` | IMAP polling via `EmailInboundAccountProvider` SPI | `@DefaultBean` reads from MP Config; custom providers supply multi-account or DB-backed configs |
+| `email-inbound` | IMAP IDLE via `EmailInboundAccountProvider` SPI | `@DefaultBean` reads from MP Config; custom providers supply multi-account or DB-backed configs |
 
-`EmailInboundConnector` polls each configured IMAP account on a dedicated single-threaded
-daemon executor. `connectorId` is always `"email-inbound"` (type discriminator); per-account
+`EmailInboundConnector` monitors each configured IMAP account via IMAP IDLE on a virtual
+thread per account. `connectorId` is always `"email-inbound"` (type discriminator); per-account
 identity is in `InboundMessage.metadata["account-id"]`. Delivery is at-least-once — the SEEN
 flag is set per-message in a `finally` block, but a JVM shutdown mid-flag can cause redelivery.
 Observers must be idempotent.
@@ -174,6 +176,7 @@ public record InboundMessage(
         String externalSenderId,
         String externalChannelRef,
         String content,
+        List<Attachment> attachments,
         Instant receivedAt,
         Map<String, String> metadata) { }
 ```
@@ -183,9 +186,10 @@ public record InboundMessage(
 | `connectorId` | Source connector type id (e.g. `"slack-inbound"`, `"email-inbound"`) — observers filter on this; never an account-level id |
 | `externalSenderId` | Who sent it — Slack user ID, E.164 phone number, email address (`InternetAddress.getAddress()`); `""` if absent/unparseable |
 | `externalChannelRef` | Where it came from — Slack channel ID, WhatsApp destination number, email recipient address; falls back to account username for email when `To:` is absent |
-| `content` | Message text. **Text-only in v1** — media messages yield `content` = media URL or empty string; HTML-only emails yield raw HTML |
+| `content` | Message text — media messages yield `content` = media URL or empty string; HTML-only emails yield raw HTML |
+| `attachments` | Binary attachments (e.g. email MIME parts). Empty list for connectors that do not carry attachments. |
 | `receivedAt` | Server-assigned arrival time: `getReceivedDate()` → `getSentDate()` → `Instant.now()` (fallback chain) |
-| `metadata` | Connector-specific extras. Keys are present only when the underlying header/field exists. `"account-id"` is always present for multi-account connectors (e.g. email inbound). |
+| `metadata` | Connector-specific extras. Keys are present only when the underlying header/field exists. `"account-id"` is always present for multi-account connectors (e.g. email inbound). `"attachment-count"` (String integer) is always present for `email-inbound` and indicates the number of attachments. |
 
 ---
 

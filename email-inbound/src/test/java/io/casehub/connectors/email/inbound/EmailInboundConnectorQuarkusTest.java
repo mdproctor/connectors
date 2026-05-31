@@ -66,5 +66,7 @@ class EmailInboundConnectorQuarkusTest {
         assertThat(delivered.content()).isEqualTo("Integration body");
         assertThat(delivered.metadata()).containsEntry("account-id", "email-inbound");
         assertThat(delivered.metadata()).containsEntry("subject", "Integration test");
+        assertThat(delivered.attachments()).isEmpty();
+        assertThat(delivered.metadata()).containsEntry("attachment-count", "0");
     }
 }

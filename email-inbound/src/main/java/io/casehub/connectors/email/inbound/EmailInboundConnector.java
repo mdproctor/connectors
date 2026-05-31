@@ -204,13 +204,15 @@ public class EmailInboundConnector implements InboundConnector {
     private static InboundMessage toInboundMessage(final EmailInboundAccount account,
                                                     final Message msg) {
         try {
+            final ExtractionResult extracted = ContentExtractor.extract(msg);
             return new InboundMessage(
                     ID,
                     extractSenderId(msg),
                     extractChannelRef(msg, account),
-                    ContentExtractor.extractContent(msg),
+                    extracted.content(),
+                    extracted.attachments(),
                     resolveReceivedAt(msg),
-                    buildMetadata(account, msg, 0));
+                    buildMetadata(account, msg, extracted.attachments().size()));
         } catch (final Exception e) {
             LOG.log(Level.WARNING, "email-inbound: message parse failed", e);
             return new InboundMessage(ID, "", account.username(), "",

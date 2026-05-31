@@ -14,7 +14,10 @@ import jakarta.mail.Message;
 import jakarta.mail.Session;
 import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
+import io.casehub.connectors.Attachment;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
@@ -312,5 +315,89 @@ class EmailInboundConnectorTest {
         assertThat(metadata).containsEntry("message-id", "<test@example.com>");
         assertThat(metadata).doesNotContainKey("subject");
         assertThat(metadata).containsEntry("attachment-count", "3");
+    }
+
+    // ── attachment delivery (Phase 2) ─────────────────────────────────────────
+
+    @Test
+    @Timeout(5)
+    void messageWithPdfAttachment_attachmentDelivered() throws Exception {
+        connector.start(captured::add);
+
+        final MimeMessage raw = new MimeMessage(Session.getInstance(new Properties()));
+        raw.setFrom(new InternetAddress("sender@example.com"));
+        raw.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
+        raw.setSubject("Invoice");
+        raw.setSentDate(Date.from(Instant.now()));
+
+        final MimeMultipart multipart = new MimeMultipart();
+        final MimeBodyPart textPart = new MimeBodyPart();
+        textPart.setText("See attached");
+        multipart.addBodyPart(textPart);
+        final MimeBodyPart attPart = new MimeBodyPart();
+        attPart.setContent(new byte[]{1, 2, 3}, "application/pdf");
+        attPart.setDisposition(jakarta.mail.Part.ATTACHMENT);
+        attPart.setFileName("invoice.pdf");
+        multipart.addBodyPart(attPart);
+        raw.setContent(multipart);
+
+        deliverViaSMTP(raw);
+
+        final InboundMessage msg = receive();
+        assertThat(msg.content()).isEqualTo("See attached");
+        assertThat(msg.attachments()).hasSize(1);
+        assertThat(msg.attachments().get(0).filename()).isEqualTo("invoice.pdf");
+        assertThat(msg.attachments().get(0).contentType()).isEqualTo("application/pdf");
+        assertThat(msg.attachments().get(0).content()).isEqualTo(new byte[]{1, 2, 3});
+        assertThat(msg.metadata()).containsEntry("attachment-count", "1");
+    }
+
+    @Test
+    @Timeout(5)
+    void messageWithNoAttachments_attachmentsEmptyAndCountIsZero() throws Exception {
+        connector.start(captured::add);
+        deliver("sender@example.com", "Plain", "Body");
+
+        final InboundMessage msg = receive();
+        assertThat(msg.attachments()).isEmpty();
+        assertThat(msg.metadata()).containsEntry("attachment-count", "0");
+    }
+
+    @Test
+    @Timeout(5)
+    void messageWithMultipleAttachments_allCollected() throws Exception {
+        connector.start(captured::add);
+
+        final MimeMessage raw = new MimeMessage(Session.getInstance(new Properties()));
+        raw.setFrom(new InternetAddress("sender@example.com"));
+        raw.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
+        raw.setSubject("Files");
+        raw.setSentDate(Date.from(Instant.now()));
+
+        final MimeMultipart multipart = new MimeMultipart();
+        final MimeBodyPart textPart = new MimeBodyPart();
+        textPart.setText("Two files");
+        multipart.addBodyPart(textPart);
+
+        final MimeBodyPart pdf = new MimeBodyPart();
+        pdf.setContent(new byte[]{1}, "application/pdf");
+        pdf.setDisposition(jakarta.mail.Part.ATTACHMENT);
+        pdf.setFileName("a.pdf");
+        multipart.addBodyPart(pdf);
+
+        final MimeBodyPart img = new MimeBodyPart();
+        img.setContent(new byte[]{2, 3}, "image/png");
+        img.setDisposition(jakarta.mail.Part.ATTACHMENT);
+        img.setFileName("b.png");
+        multipart.addBodyPart(img);
+
+        raw.setContent(multipart);
+        deliverViaSMTP(raw);
+
+        final InboundMessage msg = receive();
+        assertThat(msg.attachments()).hasSize(2);
+        assertThat(msg.attachments()).extracting(Attachment::filename)
+                .containsExactlyInAnyOrder("a.pdf", "b.png");
+        assertThat(msg.metadata()).containsEntry("attachment-count", "2");
     }
 }

@@ -1,6 +1,8 @@
 package io.casehub.connectors.email.inbound;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -8,18 +10,21 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.Multipart;
 import jakarta.mail.Part;
 
+import io.casehub.connectors.Attachment;
+
 /**
- * Recursive MIME content extractor. Prefers {@code text/plain}; falls back to
- * {@code text/html}; returns {@code ""} for binary-only messages.
+ * Single-pass recursive MIME content extractor.
  *
- * <p>Handles nested {@code multipart/mixed} structures:
- * <pre>
- * multipart/mixed
- *   └── multipart/alternative
- *         ├── text/plain  ← extracted
- *         └── text/html
- *   └── application/pdf   ← ignored
- * </pre>
+ * <p>Traverses the MIME tree once, collecting:
+ * <ul>
+ *   <li>{@code text/plain} → body content (preferred)</li>
+ *   <li>{@code text/html} → body content fallback</li>
+ *   <li>anything else → {@link Attachment} (filename, base content-type, bytes)</li>
+ * </ul>
+ *
+ * <p>This includes {@code text/calendar}, {@code text/csv}, {@code text/x-vcard},
+ * and inline binary parts — any non-plain/non-html MIME type goes to attachments.
+ * Observers decide what to do with them; the connector delivers everything present.
  */
 final class ContentExtractor {
 
@@ -27,43 +32,52 @@ final class ContentExtractor {
 
     private ContentExtractor() {}
 
-    static String extractContent(final Part part) {
+    static ExtractionResult extract(final Part part) {
+        final Accumulator acc = new Accumulator();
+        traverse(part, acc);
+        return new ExtractionResult(acc.resolveContent(), List.copyOf(acc.attachments));
+    }
+
+    private static void traverse(final Part part, final Accumulator acc) {
         try {
-            final String text = extractText(part);
-            if (text != null) return text;
-            final String html = extractHtml(part);
-            if (html != null) return html;
+            if (part.isMimeType("text/plain") && acc.plainText == null) {
+                acc.plainText = part.getContent().toString();
+            } else if (part.isMimeType("text/html") && acc.htmlText == null) {
+                acc.htmlText = part.getContent().toString();
+            } else if (part.isMimeType("multipart/*")) {
+                final Multipart mp = (Multipart) part.getContent();
+                for (int i = 0; i < mp.getCount(); i++) {
+                    traverse(mp.getBodyPart(i), acc);
+                }
+            } else {
+                acc.attachments.add(toAttachment(part));
+            }
         } catch (final Exception e) {
-            LOG.log(Level.WARNING, "email-inbound: content extraction failed", e);
+            LOG.log(Level.WARNING, "email-inbound: content extraction failed on part", e);
         }
-        return "";
     }
 
-    private static String extractText(final Part part) throws MessagingException, IOException {
-        if (part.isMimeType("text/plain")) {
-            return part.getContent().toString();
-        }
-        if (part.isMimeType("multipart/*")) {
-            final Multipart mp = (Multipart) part.getContent();
-            for (int i = 0; i < mp.getCount(); i++) {
-                final String result = extractText(mp.getBodyPart(i));
-                if (result != null) return result;
-            }
-        }
-        return null;
+    private static Attachment toAttachment(final Part part)
+            throws MessagingException, IOException {
+        final String filename = part.getFileName(); // null if absent
+        String ct = part.getContentType();
+        if (ct == null) ct = "application/octet-stream"; // RFC 2045 §5.2 default
+        final String baseType = ct.contains(";")
+                ? ct.substring(0, ct.indexOf(';')).trim().toLowerCase()
+                : ct.trim().toLowerCase();
+        final byte[] bytes = part.getInputStream().readAllBytes();
+        return new Attachment(filename, baseType, bytes);
     }
 
-    private static String extractHtml(final Part part) throws MessagingException, IOException {
-        if (part.isMimeType("text/html")) {
-            return part.getContent().toString();
+    private static final class Accumulator {
+        String plainText = null;
+        String htmlText  = null;
+        final List<Attachment> attachments = new ArrayList<>();
+
+        String resolveContent() {
+            if (plainText != null) return plainText;
+            if (htmlText  != null) return htmlText;
+            return "";
         }
-        if (part.isMimeType("multipart/*")) {
-            final Multipart mp = (Multipart) part.getContent();
-            for (int i = 0; i < mp.getCount(); i++) {
-                final String result = extractHtml(mp.getBodyPart(i));
-                if (result != null) return result;
-            }
-        }
-        return null;
     }
 }

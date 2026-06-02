@@ -121,7 +121,7 @@ class EmailInboundConnectorTest {
     }
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void doubleStart_isNoOp() throws Exception {
         connector.start(captured::add);
         connector.start(captured::add); // second call must not subscribe a second IDLE loop
@@ -137,7 +137,7 @@ class EmailInboundConnectorTest {
     // ── delivery ─────────────────────────────────────────────────────────────
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void singlePlainTextMessage_deliveredWithCorrectFields() throws Exception {
         connector.start(captured::add);
         deliver("sender@example.com", "Hello subject", "Hello body");

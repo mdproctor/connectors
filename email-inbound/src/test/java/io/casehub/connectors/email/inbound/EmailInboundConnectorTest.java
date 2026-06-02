@@ -162,7 +162,7 @@ class EmailInboundConnectorTest {
         deliver("b@example.com", "Second", "Body B");
 
         await().atMost(5, TimeUnit.SECONDS)
-               .untilAsserted(() -> assertThat(captured).as("both messages not delivered within 5s").hasSizeGreaterThanOrEqualTo(2));
+               .untilAsserted(() -> assertThat(captured).as("both messages not delivered within 5s").hasSize(2));
         final InboundMessage m1 = captured.poll();
         final InboundMessage m2 = captured.poll();
         assertThat(List.of(m1.content(), m2.content()))

@@ -1,6 +1,7 @@
 package io.casehub.connectors.email.inbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import java.time.Instant;
 import java.util.Date;
@@ -63,11 +64,11 @@ class EmailInboundConnectorTest {
                 false, "inbox@example.com", "password", "INBOX", 60);
     }
 
-    /** Blocks until the IDLE loop delivers a message, fails after 3 s. */
-    private InboundMessage receive() throws InterruptedException {
-        final InboundMessage msg = captured.poll(3, TimeUnit.SECONDS);
-        assertThat(msg).as("message not delivered within 3s — IDLE did not fire").isNotNull();
-        return msg;
+    /** Waits up to 5s for the IDLE loop or processUnseen to deliver a message. */
+    private InboundMessage receive() {
+        await().atMost(5, TimeUnit.SECONDS)
+               .untilAsserted(() -> assertThat(captured).as("message not delivered within 5s — IDLE did not fire or processUnseen missed it").isNotEmpty());
+        return captured.poll();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

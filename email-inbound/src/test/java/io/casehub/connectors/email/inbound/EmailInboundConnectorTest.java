@@ -226,6 +226,7 @@ class EmailInboundConnectorTest {
         msg.setSubject("HTML email");
         msg.setContent("<p>Rich content</p>", "text/html; charset=UTF-8");
         msg.setSentDate(Date.from(Instant.now()));
+        msg.saveChanges();
         deliverDirect(msg);
         connector.start(captured::add);
 
@@ -282,6 +283,7 @@ class EmailInboundConnectorTest {
         msg.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
         msg.setText("Body");
         msg.setSentDate(Date.from(Instant.now()));
+        msg.saveChanges();
         deliverDirect(msg);
         connector.start(captured::add);
 
@@ -363,6 +365,8 @@ class EmailInboundConnectorTest {
         msg.setSubject("Plain");
         msg.setText("Body");
         msg.setSentDate(Date.from(Instant.now()));
+        msg.setHeader("Message-ID", "<test-" + System.nanoTime() + "@example.com>");
+        msg.saveChanges();
         deliverDirect(msg);
         connector.start(captured::add);
 

@@ -220,14 +220,14 @@ class EmailInboundConnectorTest {
     @Test
     @Timeout(5)
     void htmlOnlyMessage_rawHtmlInContent() throws Exception {
-        connector.start(captured::add);
         final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
         msg.setFrom(new InternetAddress("sender@example.com"));
         msg.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
         msg.setSubject("HTML email");
         msg.setContent("<p>Rich content</p>", "text/html; charset=UTF-8");
         msg.setSentDate(Date.from(Instant.now()));
-        deliverViaSMTP(msg);
+        deliverDirect(msg);
+        connector.start(captured::add);
 
         assertThat(receive().content()).isEqualTo("<p>Rich content</p>");
     }
@@ -277,13 +277,13 @@ class EmailInboundConnectorTest {
     @Test
     @Timeout(5)
     void messageWithoutSubject_subjectKeyAbsent() throws Exception {
-        connector.start(captured::add);
         final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
         msg.setFrom(new InternetAddress("sender@example.com"));
         msg.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
         msg.setText("Body");
         msg.setSentDate(Date.from(Instant.now()));
-        deliverViaSMTP(msg);
+        deliverDirect(msg);
+        connector.start(captured::add);
 
         assertThat(receive().metadata()).doesNotContainKey("subject");
     }
@@ -325,8 +325,6 @@ class EmailInboundConnectorTest {
     @Test
     @Timeout(5)
     void messageWithPdfAttachment_attachmentDelivered() throws Exception {
-        connector.start(captured::add);
-
         final MimeMessage raw = new MimeMessage(Session.getInstance(new Properties()));
         raw.setFrom(new InternetAddress("sender@example.com"));
         raw.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
@@ -343,8 +341,9 @@ class EmailInboundConnectorTest {
         attPart.setFileName("invoice.pdf");
         multipart.addBodyPart(attPart);
         raw.setContent(multipart);
-
-        deliverViaSMTP(raw);
+        raw.saveChanges();
+        deliverDirect(raw);
+        connector.start(captured::add);
 
         final InboundMessage msg = receive();
         assertThat(msg.content()).isEqualTo("See attached");
@@ -358,19 +357,23 @@ class EmailInboundConnectorTest {
     @Test
     @Timeout(5)
     void messageWithNoAttachments_attachmentsEmptyAndCountIsZero() throws Exception {
+        final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
+        msg.setFrom(new InternetAddress("sender@example.com"));
+        msg.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
+        msg.setSubject("Plain");
+        msg.setText("Body");
+        msg.setSentDate(Date.from(Instant.now()));
+        deliverDirect(msg);
         connector.start(captured::add);
-        deliver("sender@example.com", "Plain", "Body");
 
-        final InboundMessage msg = receive();
-        assertThat(msg.attachments()).isEmpty();
-        assertThat(msg.metadata()).containsEntry("attachment-count", "0");
+        final InboundMessage result = receive();
+        assertThat(result.attachments()).isEmpty();
+        assertThat(result.metadata()).containsEntry("attachment-count", "0");
     }
 
     @Test
     @Timeout(5)
     void messageWithMultipleAttachments_allCollected() throws Exception {
-        connector.start(captured::add);
-
         final MimeMessage raw = new MimeMessage(Session.getInstance(new Properties()));
         raw.setFrom(new InternetAddress("sender@example.com"));
         raw.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
@@ -395,7 +398,9 @@ class EmailInboundConnectorTest {
         multipart.addBodyPart(img);
 
         raw.setContent(multipart);
-        deliverViaSMTP(raw);
+        raw.saveChanges();
+        deliverDirect(raw);
+        connector.start(captured::add);
 
         final InboundMessage msg = receive();
         assertThat(msg.attachments()).hasSize(2);

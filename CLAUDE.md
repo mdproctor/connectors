@@ -55,7 +55,7 @@ Before any git operation, run `git rev-parse --show-toplevel` to confirm which r
 | specs      | project     | lands in `docs/specs/` — promoted at epic close |
 | blog       | workspace   | staged here; published to mdproctor.github.io via publish-blog |
 | plans      | workspace   | stay in workspace permanently |
-| design     | workspace   | epic journal stays in workspace |
+| design     | project     | journal file lives in workspace design/; DESIGN.md merge target is project docs/DESIGN.md |
 | snapshots  | workspace   | stay in workspace permanently |
 | handover   | workspace   | |
 

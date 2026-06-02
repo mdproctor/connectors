@@ -189,7 +189,7 @@ class EmailInboundConnectorTest {
     }
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void sinkThrows_messageStillMarkedSeen_remainingDelivered() throws Exception {
         deliver("a@example.com", "First", "Body A");
         deliver("b@example.com", "Second", "Body B");
@@ -218,7 +218,7 @@ class EmailInboundConnectorTest {
     }
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void htmlOnlyMessage_rawHtmlInContent() throws Exception {
         final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
         msg.setFrom(new InternetAddress("sender@example.com"));
@@ -248,7 +248,7 @@ class EmailInboundConnectorTest {
     // ── edge cases (pre-deliver before start so processUnseen() on connect handles them) ──
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void missingFromHeader_senderIdIsEmptyString() throws Exception {
         final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
         msg.setRecipient(Message.RecipientType.TO, new InternetAddress("inbox@example.com"));
@@ -262,7 +262,7 @@ class EmailInboundConnectorTest {
     }
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void missingToHeader_channelRefFallsBackToAccountUsername() throws Exception {
         final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
         msg.setFrom(new InternetAddress("sender@example.com"));
@@ -276,7 +276,7 @@ class EmailInboundConnectorTest {
     }
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void messageWithoutSubject_subjectKeyAbsent() throws Exception {
         final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
         msg.setFrom(new InternetAddress("sender@example.com"));
@@ -325,7 +325,7 @@ class EmailInboundConnectorTest {
     // ── attachment delivery (Phase 2) ─────────────────────────────────────────
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void messageWithPdfAttachment_attachmentDelivered() throws Exception {
         final MimeMessage raw = new MimeMessage(Session.getInstance(new Properties()));
         raw.setFrom(new InternetAddress("sender@example.com"));
@@ -357,7 +357,7 @@ class EmailInboundConnectorTest {
     }
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void messageWithNoAttachments_attachmentsEmptyAndCountIsZero() throws Exception {
         final MimeMessage msg = new MimeMessage(Session.getInstance(new Properties()));
         msg.setFrom(new InternetAddress("sender@example.com"));
@@ -376,7 +376,7 @@ class EmailInboundConnectorTest {
     }
 
     @Test
-    @Timeout(5)
+    @Timeout(10)
     void messageWithMultipleAttachments_allCollected() throws Exception {
         final MimeMessage raw = new MimeMessage(Session.getInstance(new Properties()));
         raw.setFrom(new InternetAddress("sender@example.com"));

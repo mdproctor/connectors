@@ -6,6 +6,7 @@ import io.casehub.connectors.ConnectorService;
 import io.casehub.connectors.slack.SlackConnector;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -24,6 +25,7 @@ public class SlackMcpTool {
         this.meshBridge = meshBridge;
     }
 
+    @Blocking
     @Tool(name = "send_slack",
           description = "Posts a message to a Slack channel via an incoming webhook URL. "
                       + "Returns 'Dispatched to <url>' on success or 'Failed: <reason>' on error. "

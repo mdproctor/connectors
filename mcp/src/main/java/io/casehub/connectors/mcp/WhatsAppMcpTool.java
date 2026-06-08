@@ -10,6 +10,7 @@ import io.casehub.connectors.ConnectorService;
 import io.casehub.connectors.whatsapp.WhatsAppConnector;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -28,6 +29,7 @@ public class WhatsAppMcpTool {
         this.meshBridge = meshBridge;
     }
 
+    @Blocking
     @Tool(name = "send_whatsapp",
           description = "Sends a WhatsApp message via the Meta Cloud API. "
                       + "Requires WhatsApp Business credentials configured on the server "

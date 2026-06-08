@@ -6,6 +6,7 @@ import io.casehub.connectors.ConnectorService;
 import io.casehub.connectors.twilio.TwilioSmsConnector;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -24,6 +25,7 @@ public class TwilioSmsMcpTool {
         this.meshBridge = meshBridge;
     }
 
+    @Blocking
     @Tool(name = "send_sms",
           description = "Sends an SMS message via Twilio. "
                       + "Requires Twilio credentials configured on the server "

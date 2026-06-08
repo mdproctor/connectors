@@ -6,6 +6,7 @@ import io.casehub.connectors.ConnectorService;
 import io.casehub.connectors.teams.TeamsConnector;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -24,6 +25,7 @@ public class TeamsMcpTool {
         this.meshBridge = meshBridge;
     }
 
+    @Blocking
     @Tool(name = "send_teams",
           description = "Posts an adaptive card message to a Microsoft Teams channel "
                       + "via an incoming webhook URL. "

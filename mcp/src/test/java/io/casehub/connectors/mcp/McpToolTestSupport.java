@@ -8,17 +8,17 @@ import io.casehub.connectors.ConnectorMessage;
 import io.casehub.connectors.ConnectorService;
 
 /** Shared test doubles for MCP tool unit tests. */
-final class McpToolTestSupport {
+public final class McpToolTestSupport {
 
     private McpToolTestSupport() {}
 
     /** Records the last call to {@link Connector#send(ConnectorMessage)}. */
-    static final class RecordingConnector implements Connector {
+    public static final class RecordingConnector implements Connector {
 
         private final String id;
-        ConnectorMessage lastMessage;
+        public ConnectorMessage lastMessage;
 
-        RecordingConnector(final String id) {
+        public RecordingConnector(final String id) {
             this.id = id;
         }
 
@@ -32,17 +32,17 @@ final class McpToolTestSupport {
             this.lastMessage = message;
         }
 
-        void reset() {
+        public void reset() {
             lastMessage = null;
         }
     }
 
     /** Records all calls to {@link ConnectorMeshBridge#notifyDelivered}. */
-    static final class RecordingBridge implements ConnectorMeshBridge {
+    public static final class RecordingBridge implements ConnectorMeshBridge {
 
-        String lastConnectorId;
-        String lastDestination;
-        String lastContent;
+        public String lastConnectorId;
+        public String lastDestination;
+        public String lastContent;
 
         @Override
         public void notifyDelivered(final String connectorId,
@@ -53,7 +53,7 @@ final class McpToolTestSupport {
             this.lastContent = content;
         }
 
-        void reset() {
+        public void reset() {
             lastConnectorId = lastDestination = lastContent = null;
         }
     }

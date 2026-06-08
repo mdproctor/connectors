@@ -90,6 +90,14 @@ The protocol asks: Does this already exist elsewhere? Is this the right repo for
 
 ---
 
+## Reference Documents (casehub-parent)
+
+| Document | What it covers |
+|----------|---------------|
+| `../garden/docs/protocols/casehub/FOUNDATION-INDEX.md` | CaseHub foundation protocols |
+
+---
+
 ## Project Type
 
 type: java

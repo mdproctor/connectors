@@ -1,7 +1,7 @@
 package io.casehub.connectors.mcp;
 
 import java.util.List;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -16,8 +16,7 @@ import io.casehub.connectors.DiscoveredTarget;
 @ApplicationScoped
 public class ChannelDiscoveryMcpTool {
 
-    private static final Logger LOG =
-            Logger.getLogger(ChannelDiscoveryMcpTool.class.getName());
+    private static final Logger LOG = Logger.getLogger(ChannelDiscoveryMcpTool.class);
 
     private final List<ConnectorDiscovery> discoveries;
 
@@ -38,8 +37,7 @@ public class ChannelDiscoveryMcpTool {
             try {
                 targets = d.discover();
             } catch (final Exception e) {
-                LOG.warning("ConnectorDiscovery[" + d.id()
-                        + "] threw: " + e.getMessage());
+                LOG.warnf("ConnectorDiscovery[%s] threw: %s", d.id(), e.getMessage());
                 continue;
             }
             if (targets.isEmpty()) continue;

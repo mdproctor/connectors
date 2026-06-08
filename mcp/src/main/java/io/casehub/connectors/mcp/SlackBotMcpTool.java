@@ -1,6 +1,6 @@
 package io.casehub.connectors.mcp;
 
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -18,7 +18,7 @@ import io.casehub.connectors.slack.bot.SlackBotClient.PostResult;
 @ApplicationScoped
 public class SlackBotMcpTool {
 
-    private static final Logger LOG = Logger.getLogger(SlackBotMcpTool.class.getName());
+    private static final Logger LOG = Logger.getLogger(SlackBotMcpTool.class);
 
     private final SlackBotClient slackBotClient;
     private final ConnectorMeshBridge meshBridge;
@@ -64,8 +64,7 @@ public class SlackBotMcpTool {
                     McpContentSanitizer.sanitize(text));
             return "Posted to " + channel + " (ts=" + result.ts() + ")";
         } catch (final Exception e) {
-            LOG.warning("send_slack_bot failed [" + e.getClass().getSimpleName()
-                    + "]: " + e.getMessage());
+            LOG.warnf("send_slack_bot failed [%s]: %s", e.getClass().getSimpleName(), e.getMessage());
             return "Failed: " + e.getMessage();
         }
     }

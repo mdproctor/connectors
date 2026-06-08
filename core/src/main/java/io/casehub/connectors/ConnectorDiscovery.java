@@ -11,8 +11,9 @@ import java.util.List;
  *
  * <h2>Contract for implementations</h2>
  * <ul>
- * <li>Must not throw — exceptions propagate to the MCP tool caller and silence all
- *     other discoveries. Catch internally and return an empty list on failure.</li>
+ * <li>Should not throw — the caller catches exceptions per-discovery and continues,
+ *     but a throwing implementation produces a warning log entry and skips this
+ *     connector's results. Return an empty list instead of throwing on failure.</li>
  * <li>Must return quickly — no long-running blocking calls without virtual-thread
  *     offloading.</li>
  * </ul>
@@ -29,6 +30,10 @@ public interface ConnectorDiscovery {
 
     /**
      * Discovers the delivery targets available for this connector.
+     *
+     * <p>Implementations should not throw — the caller catches exceptions per-discovery
+     * and continues, but a throwing implementation produces a warning log entry and skips
+     * this connector's results. Return an empty list instead of throwing on failure.
      *
      * @return list of discovered targets; never null; empty list on failure or when
      *         no targets are reachable

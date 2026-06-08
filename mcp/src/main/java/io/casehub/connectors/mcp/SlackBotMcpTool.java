@@ -24,7 +24,7 @@ public class SlackBotMcpTool {
     private final ConnectorMeshBridge meshBridge;
     private final String botToken;
 
-    @Inject
+    @Inject // public: SlackBotMcpToolTest is in io.casehub.connectors.slack.bot (cross-package)
     public SlackBotMcpTool(final SlackBotClient slackBotClient,
                     final ConnectorMeshBridge meshBridge,
                     @ConfigProperty(name = "casehub.connectors.slack-bot.token",
@@ -55,8 +55,9 @@ public class SlackBotMcpTool {
             if (botToken.isBlank()) {
                 return "Failed: casehub.connectors.slack-bot.token is not configured";
             }
-            final PostResult result =
-                    slackBotClient.postMessage(botToken, channel, text, threadTs);
+            final PostResult result = slackBotClient.postMessage(
+                    botToken, channel, text,
+                    (threadTs == null || threadTs.isBlank()) ? null : threadTs);
             if (!result.ok()) {
                 return "Failed: " + result.error();
             }

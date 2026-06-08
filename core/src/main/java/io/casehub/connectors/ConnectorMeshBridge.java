@@ -24,7 +24,7 @@ public interface ConnectorMeshBridge {
      *
      * @param connectorId  connector type id — use the connector's {@code ID} constant,
      *                     e.g. {@link io.casehub.connectors.slack.SlackConnector#ID}
-     * @param destination  delivery target: webhook URL, E.164 number, or email address
+     * @param destination  delivery target: webhook URL, E.164 number, email address, or channel ID
      * @param content      message body, pre-sanitized and truncated to 500 chars;
      *                     {@code null} is permitted — implementations must treat it as empty
      */

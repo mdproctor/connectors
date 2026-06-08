@@ -2,6 +2,8 @@ package io.casehub.connectors.slack.bot;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.notMatching;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
@@ -10,6 +12,10 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED;
 import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+
+import io.casehub.connectors.DiscoveredTarget;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -179,5 +185,49 @@ class SlackBotClientTest {
         assertThat(result.ok()).isFalse();
         assertThat(result.error()).isEqualTo("fatal_error");
         wireMock.verify(2, postRequestedFor(urlEqualTo("/api/chat.postMessage")));
+    }
+
+    // ── Channel discovery ─────────────────────────────────────────────────────────
+
+    @Test
+    void listChannels_returnsDiscoveredTargets() {
+        wireMock.stubFor(get(urlEqualTo(
+                "/api/conversations.list?types=public_channel,private_channel&limit=200"))
+                .willReturn(okJson("{\"ok\":true,\"channels\":["
+                        + "{\"id\":\"C123ABC\",\"name\":\"general\"},"
+                        + "{\"id\":\"C456DEF\",\"name\":\"engineering\"}"
+                        + "]}")));
+
+        final List<DiscoveredTarget> result = client.listChannels("xoxb-test-token");
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).id()).isEqualTo("C123ABC");
+        assertThat(result.get(0).displayName()).isEqualTo("#general");
+        assertThat(result.get(1).id()).isEqualTo("C456DEF");
+        assertThat(result.get(1).displayName()).isEqualTo("#engineering");
+    }
+
+    @Test
+    void listChannels_sendsAuthorizationHeader() {
+        wireMock.stubFor(get(urlEqualTo(
+                "/api/conversations.list?types=public_channel,private_channel&limit=200"))
+                .willReturn(okJson("{\"ok\":true,\"channels\":[]}")));
+
+        client.listChannels("xoxb-my-token");
+
+        wireMock.verify(getRequestedFor(urlEqualTo(
+                "/api/conversations.list?types=public_channel,private_channel&limit=200"))
+                .withHeader("Authorization", equalTo("Bearer xoxb-my-token")));
+    }
+
+    @Test
+    void listChannels_slackReturnsNotOk_returnsEmptyList() {
+        wireMock.stubFor(get(urlEqualTo(
+                "/api/conversations.list?types=public_channel,private_channel&limit=200"))
+                .willReturn(okJson("{\"ok\":false,\"error\":\"invalid_auth\"}")));
+
+        final List<DiscoveredTarget> result = client.listChannels("xoxb-bad");
+
+        assertThat(result).isEmpty();
     }
 }

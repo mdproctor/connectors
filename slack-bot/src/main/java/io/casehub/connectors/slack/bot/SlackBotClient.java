@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.logging.Logger;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -14,6 +15,7 @@ import jakarta.json.JsonObjectBuilder;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import io.casehub.connectors.DiscoveredTarget;
 import io.casehub.connectors.http.HttpHelper;
 
 /**
@@ -34,6 +36,8 @@ import io.casehub.connectors.http.HttpHelper;
  */
 @ApplicationScoped
 public class SlackBotClient {
+
+    public static final String ID = "slack-bot";
 
     private static final Logger LOG = Logger.getLogger(SlackBotClient.class.getName());
     private static final String API_PATH = "/api/chat.postMessage";
@@ -64,6 +68,50 @@ public class SlackBotClient {
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
         return sendWithRetry(request);
+    }
+
+    /**
+     * Lists channels accessible to the bot.
+     *
+     * @param token bot token ({@code xoxb-…})
+     * @return list of discovered targets; empty on error or empty workspace
+     */
+    public List<DiscoveredTarget> listChannels(final String token) {
+        final HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiBaseUrl + "/api/conversations.list"
+                        + "?types=public_channel,private_channel&limit=200"))
+                .header("Authorization", "Bearer " + token)
+                .timeout(REQUEST_TIMEOUT)
+                .GET()
+                .build();
+        try {
+            final HttpResponse<String> response =
+                    HttpHelper.CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            return parseChannels(response.body());
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return List.of();
+        } catch (final Exception e) {
+            LOG.warning("SlackBotClient: listChannels HTTP error — " + e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<DiscoveredTarget> parseChannels(final String body) {
+        if (body == null || body.isBlank()) return List.of();
+        try (var reader = Json.createReader(new StringReader(body))) {
+            final JsonObject obj = reader.readObject();
+            if (!obj.getBoolean("ok", false)) return List.of();
+            return obj.getJsonArray("channels").stream()
+                    .map(v -> v.asJsonObject())
+                    .map(ch -> new DiscoveredTarget(
+                            ch.getString("id"),
+                            "#" + ch.getString("name")))
+                    .toList();
+        } catch (final Exception e) {
+            LOG.warning("SlackBotClient: listChannels parse error — " + e.getMessage());
+            return List.of();
+        }
     }
 
     private PostResult sendWithRetry(final HttpRequest request) {

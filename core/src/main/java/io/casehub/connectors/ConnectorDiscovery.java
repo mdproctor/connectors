@@ -18,6 +18,20 @@ import java.util.List;
  * </ul>
  */
 public interface ConnectorDiscovery {
-    String connectorId();
+
+    /**
+     * The connector type id this discovery is associated with.
+     * Must match the value returned by the corresponding {@link Connector#id()}.
+     *
+     * @return the connector type id; never null or blank
+     */
+    String id();
+
+    /**
+     * Discovers the delivery targets available for this connector.
+     *
+     * @return list of discovered targets; never null; empty list on failure or when
+     *         no targets are reachable
+     */
     List<DiscoveredTarget> discover();
 }

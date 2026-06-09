@@ -55,7 +55,8 @@ Raw stack traces must not reach the LLM caller regardless of what the connector 
 | `webhook` | `casehub-connectors-webhook` | Webhook inbound connectors (Slack, Teams, WhatsApp, Twilio SMS) + `WebhookRouter` JAX-RS |
 | `email` | `casehub-connectors-email` | Email outbound via `quarkus-mailer` |
 | `email-inbound` | `casehub-connectors-email-inbound` | Email inbound via IMAP IDLE (`EmailInboundConnector`) + `EmailInboundAccountProvider` SPI |
-| `mcp` | `casehub-connectors-mcp` | MCP tool surface — `send_slack`, `send_teams`, `send_sms`, `send_whatsapp`, `send_email` tools for LLM agents; depends on `core` + `email` + `quarkus-mcp-server-core`. Consuming apps add `quarkus-mcp-server-http` for transport. |
+| `slack-bot` | `casehub-connectors-slack-bot` | Slack Web API HTTP client (`SlackBotClient` — `chat.postMessage` + `conversations.list`) and `SlackBotDiscovery` (`ConnectorDiscovery` SPI impl). Separate from `core` to avoid polluting the zero-dep core module with bot-specific code. |
+| `mcp` | `casehub-connectors-mcp` | MCP tool surface — `send_slack`, `send_teams`, `send_sms`, `send_whatsapp`, `send_email`, `send_slack_bot`, `list_channels` tools for LLM agents; depends on `core` + `email` + `slack-bot` + `quarkus-mcp-server-core`. Consuming apps add `quarkus-mcp-server-http` for transport. |
 
 Each module carries only the dependencies it needs. `email` and `email-inbound` are
 separate because `quarkus-mailer` (SMTP) and `angus-mail` (IMAP) have no shared
@@ -104,6 +105,32 @@ ARC would otherwise eliminate the bean at augmentation time when `core` is used 
 
 **SPI contract:** must return quickly (no blocking I/O on calling thread); must tolerate absent
 case context without throwing; must never throw; `null` content is permitted and treated as empty.
+
+### `ConnectorDiscovery` SPI
+
+```java
+public record DiscoveredTarget(String id, String displayName) {}
+
+public interface ConnectorDiscovery {
+    String id();
+    List<DiscoveredTarget> discover();
+}
+```
+
+Optional SPI for connectors whose delivery targets are discoverable at runtime. `@ApplicationScoped`
+CDI beans; `ChannelDiscoveryMcpTool` collects all implementations via `@All List<ConnectorDiscovery>` —
+consistent with `ConnectorService(@All List<Connector>)`. Method `id()` (not `connectorId()`) to
+match `Connector.id()` and `InboundConnector.id()` convention.
+
+`DiscoveredTarget` is a top-level record in `io.casehub.connectors` — not nested in
+`ConnectorDiscovery` — so external implementors can import it independently.
+
+`discover()` must not throw; implementations catch internally and return an empty list on failure.
+`ChannelDiscoveryMcpTool` adds a per-discovery try/catch as belt-and-suspenders.
+
+**Built-in implementation:** `SlackBotDiscovery` (in `slack-bot` module) calls
+`SlackBotClient.listChannels()` using a configured bot token. Returns empty list when
+`casehub.connectors.slack-bot.token` is blank.
 
 ---
 
@@ -323,16 +350,33 @@ Set<String> available = connectors.ids();
 
 ### MCP tool surface
 
-Add `casehub-connectors-mcp` to expose five tools to LLM agents:
+Add `casehub-connectors-mcp` to expose seven tools to LLM agents:
 
-| Tool | Parameters | Connector |
-|------|-----------|-----------|
-| `send_slack` | `webhookUrl`, `title`, `body` | `SlackConnector` |
-| `send_teams` | `webhookUrl`, `title`, `body` | `TeamsConnector` |
-| `send_sms` | `to` (E.164), `body` | `TwilioSmsConnector` |
-| `send_whatsapp` | `to` (E.164), `body`, `templateName`?, `templateLanguage`? | `WhatsAppConnector` |
-| `send_email` | `to`, `subject`, `body` | `EmailConnector` |
+| Tool | Parameters | Returns | Connector |
+|------|-----------|---------|-----------|
+| `send_slack` | `webhookUrl`, `title`, `body` | `"Dispatched to <url>"` | `SlackConnector` |
+| `send_teams` | `webhookUrl`, `title`, `body` | `"Dispatched to <url>"` | `TeamsConnector` |
+| `send_sms` | `to` (E.164), `body` | `"Dispatched to <number>"` | `TwilioSmsConnector` |
+| `send_whatsapp` | `to` (E.164), `body`, `templateName`?, `templateLanguage`? | `"Dispatched to <number>"` | `WhatsAppConnector` |
+| `send_email` | `to`, `subject`, `body` | `"Dispatched to <address>"` | `EmailConnector` |
+| `send_slack_bot` | `channel` (ID), `text`, `threadTs`? | `"Posted to <channel> (ts=<ts>)"` | `SlackBotClient` |
+| `list_channels` | _(none)_ | formatted channel list | `ConnectorDiscovery` beans |
 
-Each tool returns `"Dispatched to <destination>"` on success (`send()` is void; dispatch,
-not confirmed delivery) or `"Failed: <reason>"` on error. Consuming apps add
-`quarkus-mcp-server-http` for the transport.
+`send_slack_bot` requires `casehub.connectors.slack-bot.token` configured on the server. It
+bypasses `ConnectorService` (which is void) to return the Slack message timestamp — callers can
+save the `ts` and pass it as `threadTs` in subsequent calls to reply in-thread.
+
+`list_channels` aggregates all registered `ConnectorDiscovery` beans. Use the returned channel
+IDs with `send_slack_bot`.
+
+All `@Tool` methods are annotated `@Blocking` — tools call `HttpHelper.CLIENT.send()` which
+blocks; without `@Blocking` the Vert.x I/O thread stalls.
+
+Failure returns `"Failed: <reason>"` for all tools. Consuming apps add `quarkus-mcp-server-http`
+for the transport.
+
+**Slack bot configuration (`slack-bot` module):**
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `casehub.connectors.slack-bot.token` | `""` | Bot token (`xoxb-…`). Blank → `send_slack_bot` returns `"Failed: ...not configured"` and `list_channels` returns empty. |

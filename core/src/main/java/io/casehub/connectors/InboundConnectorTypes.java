@@ -19,6 +19,7 @@ public final class InboundConnectorTypes {
     public static final String TEAMS    = "teams";
     public static final String DISCORD  = "discord";
     public static final String IRC      = "irc";
+    public static final String SIGNAL   = "signal";
 
     private InboundConnectorTypes() {}
 }

@@ -18,7 +18,7 @@ public final class InboundConnectorIds {
     public static final String IRC = "irc-inbound";
     public static final String DISCORD_INBOUND = "discord-inbound";
     public static final String CHAT_INJECT     = "chat-inject";
-
+    public static final String SIGNAL_INBOUND  = "signal-inbound";
 
     private InboundConnectorIds() {}
 }

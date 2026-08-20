@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+@jakarta.enterprise.context.ApplicationScoped
 public class SignalClient {
 
     private static final Logger LOG = Logger.getLogger(SignalClient.class.getName());
@@ -27,11 +28,18 @@ public class SignalClient {
     private final String apiUrl;
     private final HttpClient http;
 
-    public SignalClient(final String apiUrl) {
+    @jakarta.inject.Inject
+    public SignalClient(
+            @org.eclipse.microprofile.config.inject.ConfigProperty(name = "casehub.signal.api-url", defaultValue = "")
+            final String apiUrl) {
         this.apiUrl = apiUrl;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
+    }
+
+    SignalClient() {
+        this("");
     }
 
     public SendResponse send(final String number, final String recipient,

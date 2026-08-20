@@ -10,12 +10,18 @@
         <module name="casehub-platform" />
         <module name="casehub-platform-agent-api" />
         <module name="casehub-platform-acl-admin" />
+        <module name="casehub-platform-acl-worker" />
         <module name="casehub-platform-scim" />
         <module name="casehub-connectors-notification-bridge" />
         <module name="casehub-platform-endpoints-memory" />
+        <module name="casehub-connectors-signal-cli" />
+        <module name="casehub-platform-graphql" />
         <module name="casehub-platform-api" />
+        <module name="casehub-platform-callback-client" />
+        <module name="casehub-platform-mcp" />
         <module name="casehub-platform-notification-settings-inmem" />
         <module name="casehub-platform-streams-poll" />
+        <module name="casehub-connectors-chat-signal" />
         <module name="casehub-platform-digest-jpa" />
         <module name="casehub-connectors-chat-spi" />
         <module name="casehub-platform-streams-amqp" />
@@ -29,18 +35,25 @@
         <module name="casehub-platform-datasource-inmem" />
         <module name="casehub-platform-datasource-alpha" />
         <module name="casehub-platform-notifications" />
+        <module name="casehub-connectors-graphql" />
+        <module name="casehub-platform-callback-inmem" />
+        <module name="casehub-platform-callback" />
         <module name="casehub-platform-acl-jpa" />
         <module name="casehub-connectors-email-inbound" />
         <module name="casehub-platform-view" />
         <module name="casehub-platform-testing" />
+        <module name="casehub-platform-callback-api" />
         <module name="casehub-platform-expression" />
+        <module name="casehub-platform-agent-router" />
         <module name="casehub-platform-preferences-editor" />
         <module name="casehub-platform-governance" />
         <module name="casehub-platform-credentials-quarkus" />
         <module name="casehub-platform-delivery-tracking-inmem" />
         <module name="casehub-connectors-calendar-ref" />
         <module name="casehub-connectors-calendar-google" />
+        <module name="casehub-platform-agent-openai" />
         <module name="casehub-platform-subscriptions-jpa" />
+        <module name="casehub-platform-agent-gemini" />
         <module name="casehub-connectors-mcp" />
         <module name="casehub-connectors-chat-irc" />
         <module name="casehub-platform-digest-inmem" />
@@ -50,9 +63,12 @@
         <module name="casehub-platform-subscriptions-inmem" />
         <module name="casehub-platform-agent-langchain4j" />
         <module name="casehub-connectors-calendar-spi" />
+        <module name="casehub-graphql-client" />
         <module name="casehub-platform-view-inmem" />
+        <module name="casehub-platform-agent-gemini-cli" />
         <module name="casehub-platform-identity" />
         <module name="casehub-connectors-email" />
+        <module name="casehub-platform-agent-codex" />
         <module name="casehub-platform-subscriptions" />
         <module name="casehub-platform-config" />
         <module name="casehub-platform-notification-dispatch" />
@@ -70,6 +86,7 @@
         <module name="casehub-platform-persistence-mongodb" />
         <module name="casehub-connectors-chat-ref" />
         <module name="casehub-chat-app" />
+        <module name="casehub-platform-agent-runtime" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
@@ -85,25 +102,41 @@
       <module name="casehub-connectors-chat-discord" options="-parameters" />
       <module name="casehub-connectors-chat-irc" options="-parameters" />
       <module name="casehub-connectors-chat-ref" options="-parameters" />
+      <module name="casehub-connectors-chat-signal" options="-parameters" />
       <module name="casehub-connectors-chat-slack" options="-parameters" />
       <module name="casehub-connectors-chat-spi" options="-parameters" />
       <module name="casehub-connectors-core" options="-parameters" />
       <module name="casehub-connectors-discord" options="-parameters" />
       <module name="casehub-connectors-email" options="-parameters" />
       <module name="casehub-connectors-email-inbound" options="-parameters" />
+      <module name="casehub-connectors-graphql" options="-parameters" />
       <module name="casehub-connectors-mcp" options="-parameters" />
       <module name="casehub-connectors-notification-bridge" options="-parameters" />
+      <module name="casehub-connectors-signal-cli" options="-parameters" />
       <module name="casehub-connectors-slack-bot" options="-parameters" />
       <module name="casehub-connectors-webhook" options="-parameters" />
+      <module name="casehub-graphql-client" options="-parameters" />
       <module name="casehub-platform" options="-parameters" />
       <module name="casehub-platform-acl-admin" options="-parameters" />
       <module name="casehub-platform-acl-inmem" options="-parameters" />
       <module name="casehub-platform-acl-jpa" options="-parameters" />
+      <module name="casehub-platform-acl-worker" options="-parameters" />
       <module name="casehub-platform-agent-api" options="-parameters" />
       <module name="casehub-platform-agent-claude" options="-parameters" />
+      <module name="casehub-platform-agent-codex" options="-parameters" />
       <module name="casehub-platform-agent-gate" options="-parameters" />
+      <module name="casehub-platform-agent-gemini" options="-parameters" />
+      <module name="casehub-platform-agent-gemini-cli" options="-parameters" />
       <module name="casehub-platform-agent-langchain4j" options="-parameters" />
+      <module name="casehub-platform-agent-openai" options="-parameters" />
+      <module name="casehub-platform-agent-router" options="-parameters" />
+      <module name="casehub-platform-agent-runtime" options="-parameters" />
       <module name="casehub-platform-api" options="-parameters" />
+      <module name="casehub-platform-callback" options="-parameters" />
+      <module name="casehub-platform-callback-api" options="-parameters" />
+      <module name="casehub-platform-callback-client" options="-parameters" />
+      <module name="casehub-platform-callback-generator" options="-parameters" />
+      <module name="casehub-platform-callback-inmem" options="-parameters" />
       <module name="casehub-platform-config" options="-parameters" />
       <module name="casehub-platform-credentials-quarkus" options="-parameters" />
       <module name="casehub-platform-datasource-alpha" options="-parameters" />
@@ -118,7 +151,10 @@
       <module name="casehub-platform-endpoints-memory" options="-parameters" />
       <module name="casehub-platform-expression" options="-parameters" />
       <module name="casehub-platform-governance" options="-parameters" />
+      <module name="casehub-platform-graphql" options="-parameters" />
+      <module name="casehub-platform-graphql-generator" options="-parameters" />
       <module name="casehub-platform-identity" options="-parameters" />
+      <module name="casehub-platform-mcp" options="-parameters" />
       <module name="casehub-platform-notification-dispatch" options="-parameters" />
       <module name="casehub-platform-notification-settings-inmem" options="-parameters" />
       <module name="casehub-platform-notification-settings-jpa" options="-parameters" />

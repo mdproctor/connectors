@@ -15,6 +15,8 @@
     <file url="file://$PROJECT_DIR$/chat-irc/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/chat-ref/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/chat-ref/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/chat-signal/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/chat-signal/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/chat-slack/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/chat-slack/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/chat-spi/src/main/java" charset="UTF-8" />
@@ -31,10 +33,14 @@
     <file url="file://$PROJECT_DIR$/email-inbound/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/email/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/email/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/graphql/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/graphql/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/mcp/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/mcp/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/notification-bridge/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/notification-bridge/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/signal-cli/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/signal-cli/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/slack-bot/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/slack-bot/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
@@ -47,14 +53,38 @@
     <file url="file://$PROJECT_DIR$/../platform/acl-inmem/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/acl-jpa/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/acl-jpa/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/acl-worker/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/acl-worker/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-api/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-api/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-claude/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-claude/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-codex/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-codex/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-gate/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-gate/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-gemini-cli/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-gemini-cli/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-gemini/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-gemini/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-langchain4j/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/agent-langchain4j/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-openai/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-openai/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-router/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-router/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-runtime/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/agent-runtime/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-api/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-api/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-client/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-client/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-generator/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-generator/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-inmem/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback-inmem/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/callback/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/config/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/config/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/credentials-quarkus/src/main/java" charset="UTF-8" />
@@ -83,8 +113,16 @@
     <file url="file://$PROJECT_DIR$/../platform/expression/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/governance/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/governance/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/graphql-client/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/graphql-client/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/graphql-generator/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/graphql-generator/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/graphql/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/graphql/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/identity/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/identity/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/mcp/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/../platform/mcp/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/notification-dispatch/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/notification-dispatch/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/../platform/notification-settings-inmem/src/main/java" charset="UTF-8" />

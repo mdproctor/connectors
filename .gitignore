@@ -9,3 +9,8 @@ chat-demo/chat-demo.db*
 .claude
 package-lock.json
 proj
+.mvn/maven.config
+.mvn/slot-settings.xml
+.worktrees
+.worktrees/
+.claude/

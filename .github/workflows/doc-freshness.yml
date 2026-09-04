@@ -1,0 +1,8 @@
+name: Doc Freshness Check
+on:
+  pull_request:
+jobs:
+  doc-freshness:
+    uses: casehubio/parent/.github/workflows/doc-freshness.yml@main
+    secrets: inherit
+

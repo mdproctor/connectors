@@ -895,24 +895,6 @@
         </processorPath>
         <module name="casehub-connectors-email-spi" />
       </profile>
-      <profile name="Annotation profile for CaseHub Connectors — Parent" enabled="true">
-        <sourceOutputDir name="target/generated-sources/annotations" />
-        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <option name="domainFilter" value="connectors,connectors/messaging,connectors/chat,connectors/calendar,connectors/bank-feed,connectors/email,connectors/contacts,connectors/project,connectors/commerce,connectors/travel,connectors/location,connectors/health" />
-        <option name="generateGraphQL" value="false" />
-        <processorPath useClasspath="false">
-          <entry name="$MAVEN_REPOSITORY$/io/casehub/casehub-platform-graphql-generator/0.4-SNAPSHOT/casehub-platform-graphql-generator-0.4-SNAPSHOT.jar" />
-          <entry name="$MAVEN_REPOSITORY$/io/casehub/casehub-platform-api/0.4-SNAPSHOT/casehub-platform-api-0.4-SNAPSHOT.jar" />
-          <entry name="$MAVEN_REPOSITORY$/io/casehub/casehub-mcp-api/0.4-SNAPSHOT/casehub-mcp-api-0.4-SNAPSHOT.jar" />
-          <entry name="$MAVEN_REPOSITORY$/io/cloudevents/cloudevents-core/4.0.1/cloudevents-core-4.0.1.jar" />
-          <entry name="$MAVEN_REPOSITORY$/io/cloudevents/cloudevents-api/4.0.1/cloudevents-api-4.0.1.jar" />
-          <entry name="$MAVEN_REPOSITORY$/io/smallrye/jandex/3.6.0/jandex-3.6.0.jar" />
-          <entry name="$PROJECT_DIR$/connectors-api/target/classes" />
-          <entry name="$PROJECT_DIR$/connectors-api/target/classes" />
-        </processorPath>
-        <module name="casehub-connectors-graphql" />
-      </profile>
       <profile name="Annotation profile for casehub-connectors-voice-pipeline-steps" enabled="true">
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
@@ -939,6 +921,24 @@
           <entry name="$MAVEN_REPOSITORY$/io/smallrye/jandex/3.6.0/jandex-3.6.0.jar" />
         </processorPath>
         <module name="casehub-connectors-voice-pipeline-steps" />
+      </profile>
+      <profile name="Annotation profile for CaseHub Connectors — Parent" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <option name="domainFilter" value="connectors,connectors/messaging,connectors/chat,connectors/calendar,connectors/bank-feed,connectors/email,connectors/contacts,connectors/project,connectors/commerce,connectors/travel,connectors/location,connectors/health,connectors/voice" />
+        <option name="generateGraphQL" value="false" />
+        <processorPath useClasspath="false">
+          <entry name="$MAVEN_REPOSITORY$/io/casehub/casehub-platform-graphql-generator/0.4-SNAPSHOT/casehub-platform-graphql-generator-0.4-SNAPSHOT.jar" />
+          <entry name="$MAVEN_REPOSITORY$/io/casehub/casehub-platform-api/0.4-SNAPSHOT/casehub-platform-api-0.4-SNAPSHOT.jar" />
+          <entry name="$MAVEN_REPOSITORY$/io/casehub/casehub-mcp-api/0.4-SNAPSHOT/casehub-mcp-api-0.4-SNAPSHOT.jar" />
+          <entry name="$MAVEN_REPOSITORY$/io/cloudevents/cloudevents-core/4.0.1/cloudevents-core-4.0.1.jar" />
+          <entry name="$MAVEN_REPOSITORY$/io/cloudevents/cloudevents-api/4.0.1/cloudevents-api-4.0.1.jar" />
+          <entry name="$MAVEN_REPOSITORY$/io/smallrye/jandex/3.6.0/jandex-3.6.0.jar" />
+          <entry name="$PROJECT_DIR$/connectors-api/target/classes" />
+          <entry name="$PROJECT_DIR$/connectors-api/target/classes" />
+        </processorPath>
+        <module name="casehub-connectors-graphql" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
@@ -999,7 +999,7 @@
       <module name="casehub-connectors-email-ref" options="-parameters" />
       <module name="casehub-connectors-email-spi" options="-parameters" />
       <module name="casehub-connectors-github-client" options="-parameters" />
-      <module name="casehub-connectors-graphql" options="-parameters -AdomainFilter=connectors,connectors/messaging,connectors/chat,connectors/calendar,connectors/bank-feed,connectors/email,connectors/contacts,connectors/project,connectors/commerce,connectors/travel,connectors/location,connectors/health -AgenerateGraphQL=false" />
+      <module name="casehub-connectors-graphql" options="-parameters -AdomainFilter=connectors,connectors/messaging,connectors/chat,connectors/calendar,connectors/bank-feed,connectors/email,connectors/contacts,connectors/project,connectors/commerce,connectors/travel,connectors/location,connectors/health,connectors/voice -AgenerateGraphQL=false" />
       <module name="casehub-connectors-health-ref" options="-parameters" />
       <module name="casehub-connectors-health-spi" options="-parameters" />
       <module name="casehub-connectors-integration-tests" options="-parameters" />

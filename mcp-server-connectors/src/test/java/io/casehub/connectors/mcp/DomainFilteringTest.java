@@ -55,6 +55,6 @@ class DomainFilteringTest {
 
     @Test
     void voiceReportExcluded() {
-        assertThat(toolManager.getTool("connectors/voice_report")).isNull();
+        assertThat(toolManager.getTool("connectors_voice_report")).isNull();
     }
 }

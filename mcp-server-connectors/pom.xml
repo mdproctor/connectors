@@ -11,7 +11,7 @@
     <artifactId>casehub-mcp-server-connectors</artifactId>
     <name>CaseHub MCP Server :: Connectors</name>
     <description>Standalone MCP server exposing connectors' 130+ tools.
-        Run with: java -jar target/quarkus-app/quarkus-run.jar</description>
+        Run from target/quarkus-app/: java -jar quarkus-run.jar</description>
 
     <dependencies>
         <!-- Platform MCP runtime -->

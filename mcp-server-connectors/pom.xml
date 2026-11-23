@@ -76,6 +76,7 @@
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-connectors-travel-ref</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-connectors-health-ref</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-connectors-voice-ref</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>io.casehub</groupId><artifactId>casehub-connectors-voice-sherpa</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-connectors-mobile-ref</artifactId><version>${project.version}</version></dependency>
 
         <!-- Platform core (NoOpDeliveryChannelRegistry, MockCurrentPrincipal) -->

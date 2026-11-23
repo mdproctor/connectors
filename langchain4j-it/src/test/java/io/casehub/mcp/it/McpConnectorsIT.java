@@ -200,9 +200,9 @@ class McpConnectorsIT {
         String result = mcpClient.executeTool(request);
 
         assertThat(result)
-                .contains("ref_heart")
-                .contains("ref_daniel")
-                .contains("ref");
+                .contains("af_heart")
+                .contains("bm_daniel")
+                .contains("kokoro");
     }
 
     @Test

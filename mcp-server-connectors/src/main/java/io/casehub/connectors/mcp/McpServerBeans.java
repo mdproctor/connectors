@@ -2,6 +2,7 @@ package io.casehub.connectors.mcp;
 
 import io.casehub.connectors.document.spi.DocumentPlatform;
 import io.casehub.connectors.document.spi.DocumentPlatformService;
+import io.casehub.connectors.voice.spi.RoutingVoicePlatformService;
 import io.casehub.connectors.voice.spi.VoicePlatform;
 import io.casehub.connectors.voice.spi.VoicePlatformService;
 import io.casehub.connectors.voice.spi.VoiceRegistry;
@@ -23,14 +24,19 @@ public class McpServerBeans {
         return new DocumentPlatformService(platforms);
     }
 
-    @Produces @DefaultBean @ApplicationScoped
-    public VoicePlatformService voicePlatformService(@All List<VoicePlatform> platforms) {
-        return new VoicePlatformService(platforms);
+    @Produces @ApplicationScoped
+    public RoutingVoicePlatformService routingVoicePlatformService() {
+        return new RoutingVoicePlatformService();
+    }
+
+    @Produces @ApplicationScoped
+    public VoiceRegistry voiceRegistry(RoutingVoicePlatformService routing) {
+        return routing.voiceRegistry();
     }
 
     @Produces @DefaultBean @ApplicationScoped
-    public VoiceRegistry voiceRegistry() {
-        return new InMemoryVoiceRegistry();
+    public VoicePlatformService voicePlatformService(@All List<VoicePlatform> platforms) {
+        return new VoicePlatformService(platforms);
     }
 
     @Produces @DefaultBean @ApplicationScoped

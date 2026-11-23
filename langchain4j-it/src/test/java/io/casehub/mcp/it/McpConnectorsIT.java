@@ -191,6 +191,45 @@ class McpConnectorsIT {
     // --- Direct tool execution tests (no LLM needed) ---
 
     @Test
+    void canListVoices() {
+        var request = ToolExecutionRequest.builder()
+                .name("connectors_voice_listVoices")
+                .arguments("{}")
+                .build();
+
+        String result = mcpClient.executeTool(request);
+
+        assertThat(result)
+                .contains("ref_heart")
+                .contains("ref_daniel")
+                .contains("ref");
+    }
+
+    @Test
+    void canSpeakAndTranscribe() {
+        var speakRequest = ToolExecutionRequest.builder()
+                .name("connectors_voice_speak")
+                .arguments("{\"text\": \"Hello world\"}")
+                .build();
+
+        String speakResult = mcpClient.executeTool(speakRequest);
+
+        assertThat(speakResult).contains("audioBase64");
+
+        String audioBase64 = speakResult.replaceAll(
+                ".*\"audioBase64\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+
+        var transcribeRequest = ToolExecutionRequest.builder()
+                .name("connectors_voice_transcribe")
+                .arguments("{\"audioBase64\": \"" + audioBase64 + "\"}")
+                .build();
+
+        String transcribeResult = mcpClient.executeTool(transcribeRequest);
+
+        assertThat(transcribeResult).containsIgnoringCase("hello");
+    }
+
+    @Test
     void canListCalendars() {
         var request = ToolExecutionRequest.builder()
                 .name("connectors_calendar_listCalendars")

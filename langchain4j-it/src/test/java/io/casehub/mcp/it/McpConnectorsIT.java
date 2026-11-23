@@ -258,6 +258,46 @@ class McpConnectorsIT {
                 .contains("slack");
     }
 
+    @Test
+    void canGetBankBalance() {
+        var request = ToolExecutionRequest.builder()
+                .name("connectors_bank_balance")
+                .arguments("{\"platform\": \"ref\", \"accountId\": \"acc-100\"}")
+                .build();
+        String result = mcpClient.executeTool(request);
+        assertThat(result).contains("3245");
+    }
+
+    @Test
+    void canListEmailMailboxes() {
+        var request = ToolExecutionRequest.builder()
+                .name("connectors_email_listMailboxes")
+                .arguments("{\"platform\": \"ref\"}")
+                .build();
+        String result = mcpClient.executeTool(request);
+        assertThat(result).contains("inbox");
+    }
+
+    @Test
+    void canFindHealthProvider() {
+        var request = ToolExecutionRequest.builder()
+                .name("connectors_health_findProvider")
+                .arguments("{\"platform\": \"ref\", \"query\": \"Riverside\"}")
+                .build();
+        String result = mcpClient.executeTool(request);
+        assertThat(result).contains("Riverside");
+    }
+
+    @Test
+    void canListMobileNumbers() {
+        var request = ToolExecutionRequest.builder()
+                .name("connectors_mobile_listNumbers")
+                .arguments("{\"platform\": \"ref\"}")
+                .build();
+        String result = mcpClient.executeTool(request);
+        assertThat(result).contains("441234567");
+    }
+
     // --- LLM-driven integration examples ---
     // Each mirrors an existing playbook tutorial, re-implemented as LLM + MCP.
 
@@ -388,6 +428,92 @@ class McpConnectorsIT {
                 a -> assertThat(a).containsIgnoringCase("Pizza Express"),
                 a -> assertThat(a).containsIgnoringCase("Crown"),
                 a -> assertThat(a).containsIgnoringCase("Balham"));
+    }
+
+    @Test
+    void llmCanCheckBankBalance() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Get the balance for bank account 'acc-100' on platform 'ref'. "
+                + "What is the available balance?");
+
+        assertThat(answer).contains("3245");
+    }
+
+    @Test
+    void llmCanReadEmail() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "List email mailboxes on platform 'ref'. "
+                + "What mailboxes are available?");
+
+        assertThat(answer.toLowerCase())
+                .containsIgnoringCase("inbox");
+    }
+
+    @Test
+    void llmCanListDocuments() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "List files on the 'ref' document platform. "
+                + "What files are available?");
+
+        assertThat(answer.toLowerCase())
+                .satisfiesAnyOf(
+                        a -> assertThat(a).containsIgnoringCase("passport"),
+                        a -> assertThat(a).containsIgnoringCase("insurance"),
+                        a -> assertThat(a).containsIgnoringCase("doc"));
+    }
+
+    @Test
+    void llmCanFindHealthProvider() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Find health providers by name 'Riverside' on platform 'ref'. "
+                + "What provider was found?");
+
+        assertThat(answer).satisfiesAnyOf(
+                a -> assertThat(a).containsIgnoringCase("Riverside"),
+                a -> assertThat(a).containsIgnoringCase("Medical"),
+                a -> assertThat(a).containsIgnoringCase("GP"));
+    }
+
+    @Test
+    void llmCanListChatChannels() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "List the chat channels on platform 'ref'. "
+                + "What channels exist?");
+
+        assertThat(answer.toLowerCase())
+                .satisfiesAnyOf(
+                        a -> assertThat(a).containsIgnoringCase("family"),
+                        a -> assertThat(a).containsIgnoringCase("channel"));
+    }
+
+    @Test
+    void llmCanListMobileNumbers() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "List available mobile phone numbers on platform 'ref'. "
+                + "What numbers are available?");
+
+        assertThat(answer).satisfiesAnyOf(
+                a -> assertThat(a).contains("441234567"),
+                a -> assertThat(a).containsIgnoringCase("ready"),
+                a -> assertThat(a).containsIgnoringCase("sms"));
     }
 
     @Test

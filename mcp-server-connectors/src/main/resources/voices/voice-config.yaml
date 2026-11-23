@@ -1,0 +1,47 @@
+providers:
+  - vendor: ref
+
+voices:
+  ref_heart:
+    vendor: ref
+    voice-id: ref_heart
+    name: Heart
+    gender: female
+    accent: american
+    quality: 4.5
+    languages: [en, en-US]
+    capability: tts
+
+  ref_daniel:
+    vendor: ref
+    voice-id: ref_daniel
+    name: Daniel
+    gender: male
+    accent: british
+    quality: 4.3
+    languages: [en, en-GB]
+    capability: tts
+
+  ref_bella:
+    vendor: ref
+    voice-id: ref_bella
+    name: Bella
+    gender: female
+    accent: american
+    quality: 4.2
+    languages: [en, en-US]
+    capability: tts
+
+  ref_transcriber:
+    vendor: ref
+    voice-id: ref_transcriber
+    name: Ref Transcriber
+    gender: neutral
+    accent: neutral
+    quality: 4.0
+    languages: [en, en-US, en-GB]
+    capability: stt
+
+defaults:
+  tts-vendor: ref
+  stt-vendor: ref

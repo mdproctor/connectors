@@ -4,6 +4,7 @@ import io.casehub.connectors.voice.spi.InMemoryVoiceRegistry;
 import io.casehub.connectors.voice.spi.RoutingVoicePlatformService;
 import io.casehub.connectors.voice.spi.VoicePlatform;
 import io.casehub.connectors.voice.spi.VoicePlatformService;
+import io.casehub.connectors.voice.spi.VoiceRegistry;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
@@ -23,17 +24,36 @@ public class VoiceConfigProducer {
     @ConfigProperty(name = "casehub.voice.project-dir")
     Optional<String> projectDir;
 
+    private volatile VoiceManifestResult cachedResult;
+    private volatile InMemoryVoiceRegistry cachedRegistry;
+    private volatile VoiceManifest cachedManifest;
+
+    private void ensureLoaded() {
+        if (cachedRegistry != null) return;
+        synchronized (this) {
+            if (cachedRegistry != null) return;
+            cachedRegistry = new InMemoryVoiceRegistry();
+            var loader     = new VoiceManifestLoader();
+            var dir        = projectDir.map(java.nio.file.Path::of).orElse(null);
+            cachedManifest = loader.load(dir, profile.orElse(null));
+            var processor  = new VoiceManifestProcessor(cachedRegistry);
+            cachedResult   = processor.process(cachedManifest);
+        }
+    }
+
+    @Produces
+    @ApplicationScoped
+    public VoiceRegistry voiceRegistry() {
+        ensureLoaded();
+        return cachedRegistry;
+    }
+
     @Produces
     @ApplicationScoped
     public RoutingVoicePlatformService routingVoicePlatformService() {
+        ensureLoaded();
         var platformService = new VoicePlatformService(platforms.stream().toList());
-        var registry        = new InMemoryVoiceRegistry();
-        var loader          = new VoiceManifestLoader();
-        var dir             = projectDir.map(java.nio.file.Path::of).orElse(null);
-        var manifest        = loader.load(dir, profile.orElse(null));
-        var processor       = new VoiceManifestProcessor(registry);
-        var result          = processor.process(manifest);
         return new RoutingVoicePlatformService(
-                platformService, registry, result.aliases(), manifest.defaults());
+                platformService, cachedRegistry, cachedResult.aliases(), cachedManifest.defaults());
     }
 }

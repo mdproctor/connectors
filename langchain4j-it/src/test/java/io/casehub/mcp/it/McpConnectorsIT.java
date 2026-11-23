@@ -7,13 +7,12 @@ import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.mcp.client.transport.http.HttpMcpTransport;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.ollama.OllamaChatModel;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.tool.ToolProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -24,17 +23,24 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Integration test: LangChain4j + Claude against the CaseHub MCP server.
+ * Integration test: LangChain4j + LLM against the CaseHub MCP server.
  *
  * Prerequisites:
  *   mvn -f mcp-server-connectors/pom.xml clean package -DskipTests -Dhttp
  *
- * Run:
+ * Run (Ollama default — requires Ollama running with llama3.1:8b):
  *   mvn -f langchain4j-it/pom.xml verify
  *
- * The LLM test requires ANTHROPIC_API_KEY and is skipped without it.
+ * Run with Anthropic:
+ *   mvn -f langchain4j-it/pom.xml verify -Dllm.provider=anthropic -Dllm.model=claude-sonnet-4-20250514
+ *
+ * Configuration (system properties):
+ *   llm.provider   — ollama (default) or anthropic
+ *   llm.model      — model name (default: llama3.1:8b for ollama)
+ *   llm.base-url   — Ollama base URL (default: http://localhost:11434)
  */
 class McpConnectorsIT {
 
@@ -120,6 +126,70 @@ class McpConnectorsIT {
         }
     }
 
+    // --- Model configuration ---
+
+    static ChatModel buildModel() {
+        String provider = System.getProperty("llm.provider", "ollama");
+        return switch (provider) {
+            case "ollama" -> {
+                String model = System.getProperty("llm.model", "llama3.1:8b");
+                String baseUrl = System.getProperty("llm.base-url", "http://localhost:11434");
+                yield OllamaChatModel.builder()
+                        .baseUrl(baseUrl)
+                        .modelName(model)
+                        .timeout(Duration.ofSeconds(120))
+                        .build();
+            }
+            case "anthropic" -> {
+                String apiKey = System.getenv("ANTHROPIC_API_KEY");
+                assumeTrue(apiKey != null && !apiKey.isBlank(), "ANTHROPIC_API_KEY not set");
+                String model = System.getProperty("llm.model", "claude-sonnet-4-20250514");
+                yield AnthropicChatModel.builder()
+                        .apiKey(apiKey)
+                        .modelName(model)
+                        .build();
+            }
+            default -> throw new IllegalArgumentException("Unknown llm.provider: " + provider);
+        };
+    }
+
+    static void assumeModelAvailable() {
+        String provider = System.getProperty("llm.provider", "ollama");
+        if ("ollama".equals(provider)) {
+            String baseUrl = System.getProperty("llm.base-url", "http://localhost:11434");
+            try {
+                var conn = (HttpURLConnection) URI.create(baseUrl).toURL().openConnection();
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(2000);
+                conn.setRequestMethod("GET");
+                int code = conn.getResponseCode();
+                conn.disconnect();
+                assumeTrue(code == 200, "Ollama not reachable at " + baseUrl);
+            } catch (Exception e) {
+                assumeTrue(false, "Ollama not reachable at " + baseUrl + ": " + e.getMessage());
+            }
+        } else if ("anthropic".equals(provider)) {
+            assumeTrue(System.getenv("ANTHROPIC_API_KEY") != null, "ANTHROPIC_API_KEY not set");
+        }
+    }
+
+    interface Assistant {
+        String chat(String message);
+    }
+
+    static Assistant buildAssistant(ChatModel model) {
+        ToolProvider toolProvider = McpToolProvider.builder()
+                .mcpClients(List.of(mcpClient))
+                .build();
+
+        return AiServices.builder(Assistant.class)
+                .chatModel(model)
+                .toolProvider(toolProvider)
+                .build();
+    }
+
+    // --- Direct tool execution tests (no LLM needed) ---
+
     @Test
     void canListCalendars() {
         var request = ToolExecutionRequest.builder()
@@ -149,33 +219,96 @@ class McpConnectorsIT {
                 .contains("slack");
     }
 
+    // --- LLM-driven integration examples ---
+    // Each mirrors an existing playbook tutorial, re-implemented as LLM + MCP.
+
     @Test
-    @EnabledIfEnvironmentVariable(named = "ANTHROPIC_API_KEY", matches = ".+")
-    void llmCanUseToolsToAnswerQuestion() {
-        ChatModel model = AnthropicChatModel.builder()
-                                            .apiKey(System.getenv("ANTHROPIC_API_KEY"))
-                                            .modelName("claude-sonnet-4-20250514")
-                                            .build();
-
-        ToolProvider toolProvider = McpToolProvider.builder()
-                                                   .mcpClients(List.of(mcpClient))
-                                                   .build();
-
-        interface Assistant {
-            String chat(String message);
-        }
-
-        Assistant assistant = AiServices.builder(Assistant.class)
-                                        .chatModel(model)
-                                        .toolProvider(toolProvider)
-                                        .build();
+    void llmCanListCalendars() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
 
         String answer = assistant.chat(
                 "What calendars are available on the 'ref' platform? "
+                + "Use the calendar tools to find out. "
                 + "Return just the calendar IDs as a comma-separated list.");
 
         assertThat(answer.toLowerCase())
                 .contains("cal-jonny")
                 .contains("cal-sarah");
+    }
+
+    @Test
+    void llmCanSearchContacts() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Search for 'Bob Jenkins' in contacts on the 'ref' platform "
+                + "using platform ID 'ref'. Return his email address and phone number.");
+
+        assertThat(answer.toLowerCase())
+                .contains("bob@bobsplumbing.co.uk");
+    }
+
+    @Test
+    void llmCanSearchNearbyRestaurants() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Search for restaurants near Balham, London "
+                + "(latitude 51.443, longitude -0.1525, radius 2000 metres) "
+                + "on the 'ref' platform. List the restaurant names you find.");
+
+        assertThat(answer).satisfiesAnyOf(
+                a -> assertThat(a).containsIgnoringCase("Pizza Express"),
+                a -> assertThat(a).containsIgnoringCase("Crown"));
+    }
+
+    @Test
+    void llmCanSearchProducts() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Search for 'headphones' products on the 'ref' commerce platform. "
+                + "Tell me the name and price of what you find.");
+
+        assertThat(answer).satisfiesAnyOf(
+                a -> assertThat(a).containsIgnoringCase("Sony"),
+                a -> assertThat(a).containsIgnoringCase("WH-1000XM5"),
+                a -> assertThat(a).contains("299"));
+    }
+
+    @Test
+    void llmCanSearchTransport() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Search for transport options from 'London' to 'Brighton' "
+                + "on the 'ref' travel platform for date '2026-12-01'. "
+                + "List the available options.");
+
+        assertThat(answer.toLowerCase())
+                .satisfiesAnyOf(
+                        a -> assertThat(a).containsIgnoringCase("brighton"),
+                        a -> assertThat(a).containsIgnoringCase("coach"),
+                        a -> assertThat(a).containsIgnoringCase("victoria"));
+    }
+
+    @Test
+    void llmCanDoVoiceRoundTrip() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Use the voice tools to do a round-trip test: "
+                + "1. First, synthesise the text 'Hello from LangChain4j' to speech audio. "
+                + "2. Then, transcribe that audio back to text. "
+                + "Tell me what the transcription returned.");
+
+        assertThat(answer.toLowerCase())
+                .containsIgnoringCase("hello");
     }
 }

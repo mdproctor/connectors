@@ -295,9 +295,10 @@ class McpConnectorsIT {
         Assistant assistant = buildAssistant(buildModel());
 
         String answer = assistant.chat(
-                "Search for restaurants near Balham, London "
-                + "(latitude 51.443, longitude -0.1525, radius 2000 metres) "
-                + "on the 'ref' platform. List the restaurant names you find.");
+                "Use the connectors_location_searchByCategory tool to search for "
+                + "restaurants near Balham, London. Parameters: platform='ref', "
+                + "category='restaurant', lat=51.443, lng=-0.1525, radiusMeters=2000. "
+                + "List the restaurant names from the results.");
 
         assertThat(answer).satisfiesAnyOf(
                 a -> assertThat(a).containsIgnoringCase("Pizza Express"),
@@ -310,8 +311,9 @@ class McpConnectorsIT {
         Assistant assistant = buildAssistant(buildModel());
 
         String answer = assistant.chat(
-                "Search for 'headphones' products on the 'ref' commerce platform. "
-                + "Tell me the name and price of what you find.");
+                "Use the connectors_commerce_searchProducts tool to search for "
+                + "headphones. Parameters: platform='ref', query='headphones'. "
+                + "Tell me the product name and price from the results.");
 
         assertThat(answer).satisfiesAnyOf(
                 a -> assertThat(a).containsIgnoringCase("Sony"),
@@ -401,10 +403,10 @@ class McpConnectorsIT {
         Assistant assistant = buildAssistant(buildModel());
 
         String answer = assistant.chat(
-                "Do these steps: "
-                + "1. Search for 'Dr. Patel' in contacts on the 'ref' platform (use platformId 'ref'). "
-                + "2. List the calendars available on the 'ref' calendar platform. "
-                + "Tell me Dr. Patel's email and phone, and the calendar IDs.");
+                "Do these two steps: "
+                + "1. Use connectors_contacts_search with platformId='ref' and query='Patel' to find the contact. "
+                + "2. Use connectors_calendar_listCalendars with platform='ref' to list calendars. "
+                + "Tell me the contact's email and the calendar IDs.");
 
         assertThat(answer.toLowerCase())
                 .contains("cal-jonny")

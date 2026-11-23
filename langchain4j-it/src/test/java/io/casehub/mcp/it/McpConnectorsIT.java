@@ -304,11 +304,73 @@ class McpConnectorsIT {
 
         String answer = assistant.chat(
                 "Use the voice tools to do a round-trip test: "
-                + "1. First, synthesise the text 'Hello from LangChain4j' to speech audio. "
-                + "2. Then, transcribe that audio back to text. "
-                + "Tell me what the transcription returned.");
+                + "1. First, list the available voices to see what is registered. "
+                + "2. Then, synthesise the text 'Hello from LangChain4j' to speech audio. "
+                + "3. Finally, transcribe that audio back to text. "
+                + "Report: what voices are available, what platform and voice the synthesis used, "
+                + "and what the transcription returned.");
 
         assertThat(answer.toLowerCase())
                 .containsIgnoringCase("hello");
+    }
+
+    // --- Multi-step LLM examples ---
+    // These chain multiple tool calls, mirroring the playbook multi-step patterns.
+
+    @Test
+    void llmCanSearchAndAddToCart() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Do these steps on the 'ref' commerce platform: "
+                + "1. Search for 'headphones' products. "
+                + "2. Add the first product from the results to my cart (quantity 1). "
+                + "3. View my cart. "
+                + "Tell me what product is in the cart and its price.");
+
+        assertThat(answer).satisfiesAnyOf(
+                a -> assertThat(a).containsIgnoringCase("Sony"),
+                a -> assertThat(a).containsIgnoringCase("WH-1000XM5"),
+                a -> assertThat(a).containsIgnoringCase("cart"));
+    }
+
+    @Test
+    void llmCanFindRestaurantAndGetDirections() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Do these steps on the 'ref' location platform: "
+                + "1. Search for restaurants by category 'restaurant' near Balham "
+                + "(latitude 51.443, longitude -0.1525, radius 2000 metres). "
+                + "2. Get the full details of the first restaurant in the results. "
+                + "3. Get walking directions from Balham station "
+                + "(origin latitude 51.4432, origin longitude -0.1522) "
+                + "to that restaurant's coordinates. "
+                + "Tell me the restaurant name, address, and walking duration.");
+
+        assertThat(answer).satisfiesAnyOf(
+                a -> assertThat(a).containsIgnoringCase("Pizza Express"),
+                a -> assertThat(a).containsIgnoringCase("Crown"),
+                a -> assertThat(a).containsIgnoringCase("Balham"));
+    }
+
+    @Test
+    void llmCanLookUpContactAndCheckCalendar() {
+        assumeModelAvailable();
+        Assistant assistant = buildAssistant(buildModel());
+
+        String answer = assistant.chat(
+                "Do these steps: "
+                + "1. Search for 'Dr. Patel' in contacts on the 'ref' platform (use platformId 'ref'). "
+                + "2. List the calendars available on the 'ref' calendar platform. "
+                + "Tell me Dr. Patel's email and phone, and the calendar IDs.");
+
+        assertThat(answer.toLowerCase())
+                .contains("cal-jonny")
+                .satisfiesAnyOf(
+                        a -> assertThat(a).contains("patel"),
+                        a -> assertThat(a).contains("elmstreetsurgery"));
     }
 }

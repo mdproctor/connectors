@@ -32,6 +32,16 @@ class PaginationHelperTest {
         assertThat(page.hasMore()).isFalse();
     }
 
+
+    @Test
+    void emptyCursorTreatedAsFirstPage() {
+        var items = List.of("a", "b", "c", "d", "e");
+        var page  = PaginationHelper.paginate(items, new PageRequest("", 3));
+        assertThat(page.items()).containsExactly("a", "b", "c");
+        assertThat(page.hasMore()).isTrue();
+        assertThat(page.nextCursor()).isEqualTo("3");
+    }
+
     @Test
     void emptyList() {
         var page = PaginationHelper.paginate(List.<String>of(), new PageRequest(null, 10));

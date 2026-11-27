@@ -7,5 +7,15 @@ public interface RecognitionStream extends AutoCloseable {
     boolean isEndpointDetected();
     String partialResult();
     TranscriptionResult finalResult();
+
+    default TranscriptionResult segmentResult() {
+        return finalResult();
+    }
+
+    default void reset() {
+        throw new UnsupportedOperationException("reset not supported by this implementation");
+    }
+
+
     void close();
 }

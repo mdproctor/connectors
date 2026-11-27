@@ -60,4 +60,37 @@ class SherpaConfigTest {
         assertThat(config.numThreads()).isEqualTo(expectedThreads);
         assertThat(config.provider()).isEqualTo("cpu");
     }
+
+    @Test
+    void defaultSilenceThresholds() {
+        SherpaConfig config = SherpaConfig.defaults(Path.of("/models"));
+
+        assertThat(config.rule1MinTrailingSilence()).isEqualTo(2.4f);
+        assertThat(config.rule2MinTrailingSilence()).isEqualTo(1.2f);
+    }
+
+    @Test
+    void customSilenceThresholds() {
+        SherpaConfig config = SherpaConfig.defaults(Path.of("/models"))
+                                          .withSilenceThresholds(1.0f, 0.5f);
+
+        assertThat(config.rule1MinTrailingSilence()).isEqualTo(1.0f);
+        assertThat(config.rule2MinTrailingSilence()).isEqualTo(0.5f);
+    }
+
+    @Test
+    void negativeSilenceThresholdDefaultsToStandard() {
+        SherpaConfig config = new SherpaConfig(Path.of("/models"), 2, "cpu", null, null, -1f, 0f);
+
+        assertThat(config.rule1MinTrailingSilence()).isEqualTo(2.4f);
+        assertThat(config.rule2MinTrailingSilence()).isEqualTo(1.2f);
+    }
+
+    @Test
+    void fiveArgConstructorPreservesDefaults() {
+        SherpaConfig config = new SherpaConfig(Path.of("/models"), 2, "cpu", null, null);
+
+        assertThat(config.rule1MinTrailingSilence()).isEqualTo(2.4f);
+        assertThat(config.rule2MinTrailingSilence()).isEqualTo(1.2f);
+    }
 }

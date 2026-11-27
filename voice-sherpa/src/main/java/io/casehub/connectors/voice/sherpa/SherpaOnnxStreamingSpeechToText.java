@@ -133,8 +133,8 @@ public final class SherpaOnnxStreamingSpeechToText implements StreamingSpeechToT
                 recognizerArena.allocateFrom(config.provider()));
 
         configSeg.set(ValueLayout.JAVA_INT, SherpaLayouts.ONLINE_ENABLE_ENDPOINT, 1);
-        configSeg.set(ValueLayout.JAVA_FLOAT, SherpaLayouts.ONLINE_RULE1_MIN_TRAILING_SILENCE, 2.4f);
-        configSeg.set(ValueLayout.JAVA_FLOAT, SherpaLayouts.ONLINE_RULE2_MIN_TRAILING_SILENCE, 1.2f);
+        configSeg.set(ValueLayout.JAVA_FLOAT, SherpaLayouts.ONLINE_RULE1_MIN_TRAILING_SILENCE, config.rule1MinTrailingSilence());
+        configSeg.set(ValueLayout.JAVA_FLOAT, SherpaLayouts.ONLINE_RULE2_MIN_TRAILING_SILENCE, config.rule2MinTrailingSilence());
         configSeg.set(ValueLayout.JAVA_FLOAT, SherpaLayouts.ONLINE_RULE3_MIN_UTTERANCE_LENGTH, 20.0f);
 
         MemorySegment rec;
@@ -234,6 +234,26 @@ public final class SherpaOnnxStreamingSpeechToText implements StreamingSpeechToT
             flushWithSilence();
             String text = applyCleanup(readResult());
             return new TranscriptionResult(text, text.isEmpty() ? "" : "en", 1.0);
+        }
+
+        @Override
+        public TranscriptionResult segmentResult() {
+            String text = applyCleanup(readResult());
+            reset();
+            return new TranscriptionResult(text, text.isEmpty() ? "" : "en", 1.0);
+        }
+
+        @Override
+        public void reset() {
+            if (closed) {throw new IllegalStateException("Stream is closed");}
+            lock.lock();
+            try {
+                lib.resetOnlineStream.invokeExact(recognizer, stream);
+            } catch (Throwable t) {
+                throw new SherpaException("Failed to reset online stream", t);
+            } finally {
+                lock.unlock();
+            }
         }
 
 
